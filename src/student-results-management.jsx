@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 
 // ---------- API ----------
-const API_BASE = "http://localhost:5000/api";
+const API_BASE = "https://student-results-backend-kwqt.onrender.com/api";
 
 async function apiFetch(path, token, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
