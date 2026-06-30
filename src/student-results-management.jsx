@@ -63,6 +63,19 @@ function clamp(v, max) {
   return Math.max(0, Math.min(max, v));
 }
 
+function getGrade(total) {
+  if (total >= 70) return "A";
+  if (total >= 60) return "B";
+  if (total >= 50) return "C";
+  if (total >= 45) return "D";
+  if (total >= 40) return "E";
+  return "F";
+}
+
+function getStatus(total) {
+  return total >= 40 ? "PASS" : "FAIL";
+}
+
 function GradeStamp({ status }) {
   const isPass = status === "PASS";
   const color = isPass ? PASS_C : FAIL_C;
@@ -398,19 +411,10 @@ export default function StudentResultsApp() {
 
     saveTimers.current[key] = setTimeout(async () => {
       try {
-        const data = await apiFetch(`/students/${studentId}`, token, {
+        await apiFetch(`/students/${studentId}`, token, {
           method: "PUT",
           body: JSON.stringify({ [field]: value }),
         });
-        // only refresh the computed fields (total/grade/status) from the server —
-        // never overwrite matric/name here, in case the lecturer has since typed something new
-        setSelectedStudents((prev) =>
-          prev.map((s) =>
-            s._id === studentId
-              ? { ...s, test: data.test, assignment: data.assignment, attendance: data.attendance, exam: data.exam, total: data.total, grade: data.grade, status: data.status }
-              : s
-          )
-        );
         loadSummary(courseId);
       } catch (err) {
         setGeneralError(err.message);
@@ -1126,9 +1130,9 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
             )}
             {!studentsLoading &&
               students.map((s) => {
-                const total = s.total ?? s.test + s.assignment + s.attendance + s.exam;
-                const grade = s.grade ?? "F";
-                const status = s.status ?? "FAIL";
+                const total = s.test + s.assignment + s.attendance + s.exam;
+                const grade = getGrade(total);
+                const status = getStatus(total);
                 return (
                   <tr key={s._id} style={{ borderBottom: `1px solid ${LINE}` }}>
                     <td className="px-3 py-2">
