@@ -191,6 +191,7 @@ export default function StudentResultsApp() {
   const [generalError, setGeneralError] = useState("");
   const [confirmState, setConfirmState] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const saveTimers = useRef({});
 
   function askConfirm(message, onConfirm) {
     setConfirmState({ message, onConfirm });
@@ -386,18 +387,35 @@ export default function StudentResultsApp() {
     }
   }
 
-  async function updateStudent(courseId, studentId, field, value) {
+  function updateStudent(courseId, studentId, field, value) {
+    // update what's on screen immediately, so typing feels instant
     setSelectedStudents((prev) => prev.map((s) => (s._id === studentId ? { ...s, [field]: value } : s)));
-    try {
-      const data = await apiFetch(`/students/${studentId}`, token, {
-        method: "PUT",
-        body: JSON.stringify({ [field]: value }),
-      });
-      setSelectedStudents((prev) => prev.map((s) => (s._id === studentId ? data : s)));
-      loadSummary(courseId);
-    } catch (err) {
-      setGeneralError(err.message);
-    }
+
+    // wait until the lecturer pauses typing before actually saving,
+    // and cancel any save that was already waiting for this same field
+    const key = `${studentId}-${field}`;
+    if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
+
+    saveTimers.current[key] = setTimeout(async () => {
+      try {
+        const data = await apiFetch(`/students/${studentId}`, token, {
+          method: "PUT",
+          body: JSON.stringify({ [field]: value }),
+        });
+        // only refresh the computed fields (total/grade/status) from the server —
+        // never overwrite matric/name here, in case the lecturer has since typed something new
+        setSelectedStudents((prev) =>
+          prev.map((s) =>
+            s._id === studentId
+              ? { ...s, test: data.test, assignment: data.assignment, attendance: data.attendance, exam: data.exam, total: data.total, grade: data.grade, status: data.status }
+              : s
+          )
+        );
+        loadSummary(courseId);
+      } catch (err) {
+        setGeneralError(err.message);
+      }
+    }, 500);
   }
 
   function goToPage(p) {
