@@ -26,6 +26,7 @@ import {
   Check,
   X,
   AlertCircle,
+  Menu,
 } from "lucide-react";
 
 // ---------- API ----------
@@ -189,6 +190,7 @@ export default function StudentResultsApp() {
   const [profileSaved, setProfileSaved] = useState(false);
   const [generalError, setGeneralError] = useState("");
   const [confirmState, setConfirmState] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   function askConfirm(message, onConfirm) {
     setConfirmState({ message, onConfirm });
@@ -398,6 +400,11 @@ export default function StudentResultsApp() {
     }
   }
 
+  function goToPage(p) {
+    setPage(p);
+    setSidebarOpen(false);
+  }
+
   const selectedCourse = courses.find((c) => c._id === selectedCourseId) || null;
 
   // ---- aggregate stats across all courses (for Overview) ----
@@ -549,16 +556,54 @@ export default function StudentResultsApp() {
 
   // ---------- APP SHELL ----------
   return (
-    <div className="min-h-screen w-full flex" style={{ background: PAPER, fontFamily: SANS }}>
+    <div className="min-h-screen w-full flex flex-col md:flex-row" style={{ background: PAPER, fontFamily: SANS }}>
       <FontImport />
       <ConfirmDialog state={confirmState} onClose={() => setConfirmState(null)} />
 
-      <aside className="w-60 flex-shrink-0 flex flex-col justify-between" style={{ background: INK }}>
+      {/* Mobile top bar */}
+      <div
+        className="md:hidden flex items-center justify-between px-4 py-3 sticky top-0 z-30"
+        style={{ background: INK }}
+      >
+        <button onClick={() => setSidebarOpen(true)} aria-label="Open menu" className="p-1">
+          <Menu size={22} color={PAPER} />
+        </button>
+        <div className="flex items-center gap-2">
+          <div
+            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold"
+            style={{ background: GOLD, color: INK, fontFamily: SERIF }}
+          >
+            {lecturer.name.charAt(0).toUpperCase() || "L"}
+          </div>
+          <span className="text-sm font-medium truncate max-w-[140px]" style={{ color: PAPER }}>
+            {lecturer.name}
+          </span>
+        </div>
+      </div>
+
+      {/* Mobile overlay behind drawer */}
+      {sidebarOpen && (
+        <div
+          className="md:hidden fixed inset-0 z-30"
+          style={{ background: "rgba(22,36,62,0.5)" }}
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <aside
+        className="rms-sidebar w-60 flex-shrink-0 flex flex-col justify-between fixed md:static inset-y-0 left-0 z-40 transition-transform duration-200 md:translate-x-0"
+        style={{ background: INK }}
+      >
+        <style>{`
+          @media (max-width: 767px) {
+            .rms-sidebar { transform: ${sidebarOpen ? "translateX(0)" : "translateX(-100%)"}; }
+          }
+        `}</style>
         <div>
-          <div className="px-5 py-6" style={{ borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-            <div className="flex items-center gap-3">
+          <div className="px-5 py-6 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+            <div className="flex items-center gap-3 overflow-hidden">
               <div
-                className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold"
+                className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0"
                 style={{ background: GOLD, color: INK, fontFamily: SERIF }}
               >
                 {lecturer.name.charAt(0).toUpperCase() || "L"}
@@ -572,12 +617,15 @@ export default function StudentResultsApp() {
                 </div>
               </div>
             </div>
+            <button onClick={() => setSidebarOpen(false)} className="md:hidden p-1 flex-shrink-0" aria-label="Close menu">
+              <X size={18} color={PAPER} />
+            </button>
           </div>
 
           <nav className="px-3 py-4 space-y-1">
-            <SidebarItem icon={<LayoutDashboard size={16} />} label="Overview" active={page === "overview"} onClick={() => setPage("overview")} />
-            <SidebarItem icon={<BookOpen size={16} />} label="Courses & Results" active={page === "manage"} onClick={() => setPage("manage")} />
-            <SidebarItem icon={<User size={16} />} label="Profile" active={page === "profile"} onClick={() => setPage("profile")} />
+            <SidebarItem icon={<LayoutDashboard size={16} />} label="Overview" active={page === "overview"} onClick={() => goToPage("overview")} />
+            <SidebarItem icon={<BookOpen size={16} />} label="Courses & Results" active={page === "manage"} onClick={() => goToPage("manage")} />
+            <SidebarItem icon={<User size={16} />} label="Profile" active={page === "profile"} onClick={() => goToPage("profile")} />
           </nav>
         </div>
 
@@ -590,7 +638,8 @@ export default function StudentResultsApp() {
         </button>
       </aside>
 
-      <main className="flex-1 p-8 overflow-x-auto">
+      <main className="flex-1 p-4 md:p-8 overflow-x-auto w-full">
+
         <ErrorBanner message={generalError} onClose={() => setGeneralError("")} />
 
         {page === "overview" ? (
@@ -718,14 +767,14 @@ function OverviewPage({ totalCourses, totalStudents, passRate, overallFail, barD
         </p>
       ) : (
         <>
-          <div className="grid grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-8">
             <StatCard label="Courses" value={totalCourses} />
             <StatCard label="Students" value={totalStudents} />
             <StatCard label="Pass rate" value={`${passRate}%`} />
             <StatCard label="Failing" value={overallFail} sub="across all courses" />
           </div>
 
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="rounded-lg p-5" style={{ background: "#FFFFFF", border: `1px solid ${LINE}` }}>
               <h2 className="text-sm font-semibold mb-4" style={{ color: INK }}>
                 Pass / Fail by course
@@ -816,7 +865,7 @@ function ManagePage(props) {
         Add your courses, then record and grade student scores.
       </p>
 
-      <div className="grid gap-6" style={{ gridTemplateColumns: "260px 1fr" }}>
+      <div className="grid gap-6 grid-cols-1 md:[grid-template-columns:260px_1fr]">
         <div className="rounded-lg p-4" style={{ background: "#FFFFFF", border: `1px solid ${LINE}` }}>
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs uppercase tracking-wide" style={{ color: MUTED }}>
@@ -1005,12 +1054,12 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
   return (
     <div>
       <div className="rounded-lg p-5 mb-6 overflow-x-auto" style={{ background: "#FFFFFF", border: `1px solid ${LINE}` }}>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
             <div style={{ fontFamily: MONO, fontSize: 12, color: SLATE }}>{course.code}</div>
             <h2 style={{ color: INK, fontFamily: SERIF, fontWeight: 600, fontSize: "1.1rem" }}>{course.title}</h2>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileChange} style={{ display: "none" }} />
             <button
               onClick={handleDownloadSample}
@@ -1112,7 +1161,7 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
         </table>
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="rounded-lg p-5" style={{ background: "#FFFFFF", border: `1px solid ${LINE}` }}>
           <h3 className="text-sm font-semibold mb-3" style={{ color: INK }}>
             {course.code} — Pass vs Fail
