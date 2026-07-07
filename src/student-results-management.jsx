@@ -1244,13 +1244,13 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
           )}
         </div>
       </div>
+
+      <ResultAnalysis summary={summary} course={course} />
     </div>
   );
 }
 
-// Each row keeps its own local copy of the student's values. Typing only updates
-// this local state and quietly schedules a save in the background — it never gets
-// reset or overwritten by data flowing back down from the parent/server.
+
 function StudentRow({ student, courseId, courseCode, updateStudent, removeStudent, askConfirm }) {
   const [matric, setMatric] = useState(student.matric || "");
   const [name,   setName]   = useState(student.name   || "");
@@ -1360,6 +1360,87 @@ function StudentRow({ student, courseId, courseCode, updateStudent, removeStuden
         </button>
       </td>
     </tr>
+  );
+}
+
+function ResultAnalysis({ summary, course }) {
+  if (!summary || summary.totalStudents === 0) return null;
+
+  const {
+    totalStudents, totalSat, pass, fail, passRate,
+    failedStudents = [],
+  } = summary;
+
+  return (
+    <div className="mt-6 rounded-lg p-5" style={{ background: "#FFFFFF", border: `1px solid ${LINE}` }}>
+      <h3 className="text-base font-semibold mb-4" style={{ color: INK, fontFamily: SERIF }}>
+        Result Analysis — {course.code}
+      </h3>
+
+      {/* Summary stat cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+        {[
+          { label: "Registered", value: totalStudents },
+          { label: "Sat for Exam", value: totalSat },
+          { label: "Passed", value: pass, color: PASS_C },
+          { label: "Failed", value: fail, color: FAIL_C },
+          { label: "Pass Rate", value: `${passRate}%`, color: passRate >= 50 ? PASS_C : FAIL_C },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="rounded-lg p-3 text-center" style={{ background: PAPER, border: `1px solid ${LINE}` }}>
+            <div className="text-xs uppercase tracking-wide mb-1" style={{ color: MUTED, fontFamily: SANS }}>{label}</div>
+            <div className="text-xl font-semibold" style={{ color: color || INK, fontFamily: SERIF }}>{value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Failed students list */}
+      {failedStudents.length > 0 ? (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: FAIL_C }} />
+            <h4 className="text-sm font-semibold" style={{ color: INK }}>
+              Failed Students ({failedStudents.length})
+            </h4>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full" style={{ borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  {["#", "Matric No", "Full Name", "Department", "Programme", "Exam Total", "C.A", "Grand Total", "Grade"].map((h) => (
+                    <th
+                      key={h}
+                      className="text-left px-3 py-2 text-xs uppercase tracking-wide"
+                      style={{ color: MUTED, borderBottom: `1px solid ${LINE}`, fontFamily: SANS }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {failedStudents.map((s, i) => (
+                  <tr key={s.matric + i} style={{ borderBottom: `1px solid ${LINE}` }}>
+                    <td className="px-3 py-2 text-sm" style={{ color: MUTED }}>{i + 1}</td>
+                    <td className="px-3 py-2 text-sm font-medium" style={{ color: INK, fontFamily: MONO }}>{s.matric || "—"}</td>
+                    <td className="px-3 py-2 text-sm" style={{ color: INK }}>{s.name || "—"}</td>
+                    <td className="px-3 py-2 text-sm" style={{ color: SLATE }}>{s.department || "—"}</td>
+                    <td className="px-3 py-2 text-sm" style={{ color: SLATE }}>{s.programme || "—"}</td>
+                    <td className="px-3 py-2 text-sm text-center" style={{ color: SLATE, fontFamily: MONO }}>{s.examTotal}</td>
+                    <td className="px-3 py-2 text-sm text-center" style={{ color: SLATE, fontFamily: MONO }}>{s.ca}</td>
+                    <td className="px-3 py-2 text-sm font-semibold text-center" style={{ color: FAIL_C, fontFamily: MONO }}>{s.grandTotal}</td>
+                    <td className="px-3 py-2 text-sm font-semibold" style={{ color: FAIL_C }}>{s.grade}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div className="text-sm py-4 text-center rounded-md" style={{ background: "rgba(47,107,79,0.06)", color: PASS_C, border: `1px solid rgba(47,107,79,0.2)` }}>
+          🎉 All students passed this course!
+        </div>
+      )}
+    </div>
   );
 }
 
