@@ -366,7 +366,7 @@ export default function StudentResultsApp() {
     try {
       const data = await apiFetch(`/students/course/${courseId}`, token, {
         method: "POST",
-        body: JSON.stringify({ matric: "", name: "", test: 0, assignment: 0, attendance: 0, exam: 0 }),
+        body: JSON.stringify({ matric: "", name: "", q1:0, q2:0, q3:0, q4:0, q5:0, q6:0, q7:0, q8:0, ca:0 }),
       });
       setSelectedStudents((prev) => [...prev, data]);
       loadSummary(courseId);
@@ -1024,10 +1024,15 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
           rows.push({
             matric,
             name,
-            test: clamp(parseInt(row.test, 10) || 0, 10),
-            assignment: clamp(parseInt(row.assignment, 10) || 0, 10),
-            attendance: clamp(parseInt(row.attendance, 10) || 0, 10),
-            exam: clamp(parseInt(row.exam, 10) || 0, 70),
+            q1: clamp(parseInt(row.q1, 10) || 0, 999),
+            q2: clamp(parseInt(row.q2, 10) || 0, 999),
+            q3: clamp(parseInt(row.q3, 10) || 0, 999),
+            q4: clamp(parseInt(row.q4, 10) || 0, 999),
+            q5: clamp(parseInt(row.q5, 10) || 0, 999),
+            q6: clamp(parseInt(row.q6, 10) || 0, 999),
+            q7: clamp(parseInt(row.q7, 10) || 0, 999),
+            q8: clamp(parseInt(row.q8, 10) || 0, 999),
+            ca: clamp(parseInt(row.ca, 10) || 0, 30),
           });
         });
         const result = rows.length ? await addStudentsBulk(course._id, rows) : { imported: 0 };
@@ -1043,7 +1048,9 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
   }
 
   function handleDownloadSample() {
-    const sample = "matric,name,test,assignment,attendance,exam\nU2022/300111,Sample Student,7,8,9,50\n";
+    const sample =
+      "matric,name,q1,q2,q3,q4,q5,q6,q7,q8,ca\n" +
+      "U2022/300111,Sample Student,8,9,7,6,8,7,6,9,25\n";
     const blob = new Blob([sample], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -1058,20 +1065,6 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
       {n}
     </th>
   );
-
-  function numInput(value, max, onChange) {
-    return (
-      <input
-        type="number"
-        min={0}
-        max={max}
-        value={value}
-        onChange={(e) => onChange(clamp(parseInt(e.target.value, 10) || 0, max))}
-        className="w-16 px-2 py-1 rounded-md text-sm outline-none"
-        style={{ border: `1px solid ${LINE}`, fontFamily: MONO }}
-      />
-    );
-  }
 
   return (
     <div>
@@ -1111,7 +1104,7 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
 
         <table className="w-full" style={{ borderCollapse: "collapse" }}>
           <thead>
-            <tr>{["Matric No", "Full Name", "Test /10", "Assign. /10", "Attend. /10", "Exam /70", "Total /100", "Grade", "Status", ""].map((n) => col(n))}</tr>
+            <tr>{["Matric No", "Full Name", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Exam Total /70", "C.A /30", "Grand Total /100", "Grade", "Status", ""].map((n) => col(n))}</tr>
           </thead>
           <tbody>
             {studentsLoading && (
@@ -1129,56 +1122,17 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
               </tr>
             )}
             {!studentsLoading &&
-              students.map((s) => {
-                const total = s.test + s.assignment + s.attendance + s.exam;
-                const grade = getGrade(total);
-                const status = getStatus(total);
-                return (
-                  <tr key={s._id} style={{ borderBottom: `1px solid ${LINE}` }}>
-                    <td className="px-3 py-2">
-                      <input
-                        value={s.matric}
-                        onChange={(e) => updateStudent(course._id, s._id, "matric", e.target.value)}
-                        placeholder="U2020/123456"
-                        className="w-32 px-2 py-1 rounded-md text-sm outline-none"
-                        style={{ border: `1px solid ${LINE}`, fontFamily: MONO }}
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <input
-                        value={s.name}
-                        onChange={(e) => updateStudent(course._id, s._id, "name", e.target.value)}
-                        placeholder="Full name"
-                        className="w-36 px-2 py-1 rounded-md text-sm outline-none"
-                        style={{ border: `1px solid ${LINE}` }}
-                      />
-                    </td>
-                    <td className="px-3 py-2">{numInput(s.test, 10, (v) => updateStudent(course._id, s._id, "test", v))}</td>
-                    <td className="px-3 py-2">{numInput(s.assignment, 10, (v) => updateStudent(course._id, s._id, "assignment", v))}</td>
-                    <td className="px-3 py-2">{numInput(s.attendance, 10, (v) => updateStudent(course._id, s._id, "attendance", v))}</td>
-                    <td className="px-3 py-2">{numInput(s.exam, 70, (v) => updateStudent(course._id, s._id, "exam", v))}</td>
-                    <td className="px-3 py-2 text-sm font-semibold" style={{ color: INK, fontFamily: MONO }}>
-                      {total}
-                    </td>
-                    <td className="px-3 py-2 text-sm font-semibold" style={{ color: GRADE_COLORS[grade] }}>
-                      {grade}
-                    </td>
-                    <td className="px-3 py-2">
-                      <GradeStamp status={status} />
-                    </td>
-                    <td className="px-3 py-2">
-                      <button
-                        onClick={() =>
-                          askConfirm(`Remove ${s.name || "this student"} from ${course.code}?`, () => removeStudent(course._id, s._id))
-                        }
-                        aria-label="Remove student"
-                      >
-                        <Trash2 size={14} color={FAIL_C} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+              students.map((s) => (
+                <StudentRow
+                  key={s._id}
+                  student={s}
+                  courseId={course._id}
+                  courseCode={course.code}
+                  updateStudent={updateStudent}
+                  removeStudent={removeStudent}
+                  askConfirm={askConfirm}
+                />
+              ))}
           </tbody>
         </table>
       </div>
@@ -1226,6 +1180,98 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
         </div>
       </div>
     </div>
+  );
+}
+
+// Each row keeps its own local copy of the student's values. Typing only updates
+// this local state and quietly schedules a save in the background — it never gets
+// reset or overwritten by data flowing back down from the parent/server.
+function StudentRow({ student, courseId, courseCode, updateStudent, removeStudent, askConfirm }) {
+  const [matric, setMatric] = useState(student.matric || "");
+  const [name,   setName]   = useState(student.name   || "");
+  const [q1, setQ1] = useState(student.q1 || 0);
+  const [q2, setQ2] = useState(student.q2 || 0);
+  const [q3, setQ3] = useState(student.q3 || 0);
+  const [q4, setQ4] = useState(student.q4 || 0);
+  const [q5, setQ5] = useState(student.q5 || 0);
+  const [q6, setQ6] = useState(student.q6 || 0);
+  const [q7, setQ7] = useState(student.q7 || 0);
+  const [q8, setQ8] = useState(student.q8 || 0);
+  const [ca, setCa] = useState(student.ca || 0);
+
+  const examTotal  = Math.min(70, q1 + q2 + q3 + q4 + q5 + q6 + q7 + q8);
+  const grandTotal = Math.min(100, examTotal + ca);
+  const grade  = getGrade(grandTotal);
+  const status = getStatus(grandTotal);
+
+  function numField(value, setter, field, max) {
+    return (
+      <input
+        type="number"
+        min={0}
+        max={max}
+        value={value}
+        onChange={(e) => {
+          const v = clamp(parseInt(e.target.value, 10) || 0, max);
+          setter(v);
+          updateStudent(courseId, student._id, field, v);
+        }}
+        className="w-14 px-1 py-1 rounded-md text-sm outline-none text-center"
+        style={{ border: `1px solid ${LINE}`, fontFamily: MONO }}
+      />
+    );
+  }
+
+  return (
+    <tr style={{ borderBottom: `1px solid ${LINE}` }}>
+      <td className="px-3 py-2">
+        <input
+          value={matric}
+          onChange={(e) => { setMatric(e.target.value); updateStudent(courseId, student._id, "matric", e.target.value); }}
+          placeholder="U2020/123456"
+          className="w-32 px-2 py-1 rounded-md text-sm outline-none"
+          style={{ border: `1px solid ${LINE}`, fontFamily: MONO }}
+        />
+      </td>
+      <td className="px-3 py-2">
+        <input
+          value={name}
+          onChange={(e) => { setName(e.target.value); updateStudent(courseId, student._id, "name", e.target.value); }}
+          placeholder="Full name"
+          className="w-36 px-2 py-1 rounded-md text-sm outline-none"
+          style={{ border: `1px solid ${LINE}` }}
+        />
+      </td>
+      <td className="px-2 py-2">{numField(q1, setQ1, "q1", 999)}</td>
+      <td className="px-2 py-2">{numField(q2, setQ2, "q2", 999)}</td>
+      <td className="px-2 py-2">{numField(q3, setQ3, "q3", 999)}</td>
+      <td className="px-2 py-2">{numField(q4, setQ4, "q4", 999)}</td>
+      <td className="px-2 py-2">{numField(q5, setQ5, "q5", 999)}</td>
+      <td className="px-2 py-2">{numField(q6, setQ6, "q6", 999)}</td>
+      <td className="px-2 py-2">{numField(q7, setQ7, "q7", 999)}</td>
+      <td className="px-2 py-2">{numField(q8, setQ8, "q8", 999)}</td>
+      <td className="px-3 py-2 text-sm font-semibold text-center" style={{ color: examTotal === 70 ? PASS_C : INK, fontFamily: MONO }}>
+        {examTotal}
+      </td>
+      <td className="px-2 py-2">{numField(ca, setCa, "ca", 30)}</td>
+      <td className="px-3 py-2 text-sm font-semibold text-center" style={{ color: INK, fontFamily: MONO }}>
+        {grandTotal}
+      </td>
+      <td className="px-3 py-2 text-sm font-semibold" style={{ color: GRADE_COLORS[grade] }}>
+        {grade}
+      </td>
+      <td className="px-3 py-2">
+        <GradeStamp status={status} />
+      </td>
+      <td className="px-3 py-2">
+        <button
+          onClick={() => askConfirm(`Remove ${name || "this student"} from ${courseCode}?`, () => removeStudent(courseId, student._id))}
+          aria-label="Remove student"
+        >
+          <Trash2 size={14} color={FAIL_C} />
+        </button>
+      </td>
+    </tr>
   );
 }
 
