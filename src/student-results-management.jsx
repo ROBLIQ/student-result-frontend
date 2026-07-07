@@ -200,6 +200,9 @@ export default function StudentResultsApp() {
   const [showAddCourse, setShowAddCourse] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newCode, setNewCode] = useState("");
+  const [newLevel, setNewLevel] = useState("");
+  const [newSemester, setNewSemester] = useState("");
+  const [newSession, setNewSession] = useState("");
   const [profileSaved, setProfileSaved] = useState(false);
   const [generalError, setGeneralError] = useState("");
   const [confirmState, setConfirmState] = useState(null);
@@ -329,7 +332,13 @@ export default function StudentResultsApp() {
     try {
       const data = await apiFetch("/courses", token, {
         method: "POST",
-        body: JSON.stringify({ code: newCode.trim(), title: newTitle.trim() }),
+        body: JSON.stringify({
+          code: newCode.trim(),
+          title: newTitle.trim(),
+          level: newLevel,
+          semester: newSemester,
+          session: newSession.trim(),
+        }),
       });
       setCourses((prev) => [...prev, data]);
       setSelectedCourseId(data._id);
@@ -339,6 +348,9 @@ export default function StudentResultsApp() {
       }));
       setNewTitle("");
       setNewCode("");
+      setNewLevel("");
+      setNewSemester("");
+      setNewSession("");
       setShowAddCourse(false);
     } catch (err) {
       setGeneralError(err.message);
@@ -366,7 +378,7 @@ export default function StudentResultsApp() {
     try {
       const data = await apiFetch(`/students/course/${courseId}`, token, {
         method: "POST",
-        body: JSON.stringify({ matric: "", name: "", q1:0, q2:0, q3:0, q4:0, q5:0, q6:0, q7:0, q8:0, ca:0 }),
+        body: JSON.stringify({ matric: "", name: "", department: "", programme: "", q1:0, q2:0, q3:0, q4:0, q5:0, q6:0, q7:0, q8:0, ca:0 }),
       });
       setSelectedStudents((prev) => [...prev, data]);
       loadSummary(courseId);
@@ -689,6 +701,12 @@ export default function StudentResultsApp() {
             setNewTitle={setNewTitle}
             newCode={newCode}
             setNewCode={setNewCode}
+            newLevel={newLevel}
+            setNewLevel={setNewLevel}
+            newSemester={newSemester}
+            setNewSemester={setNewSemester}
+            newSession={newSession}
+            setNewSession={setNewSession}
             addCourse={addCourse}
             removeCourse={removeCourse}
             students={selectedStudents}
@@ -866,6 +884,12 @@ function ManagePage(props) {
     setNewTitle,
     newCode,
     setNewCode,
+    newLevel,
+    setNewLevel,
+    newSemester,
+    setNewSemester,
+    newSession,
+    setNewSession,
     addCourse,
     removeCourse,
     students,
@@ -919,6 +943,35 @@ function ManagePage(props) {
                 className="w-full px-2 py-1.5 rounded-md text-sm outline-none"
                 style={{ border: `1px solid ${LINE}` }}
               />
+              <select
+                value={newLevel}
+                onChange={(e) => setNewLevel(e.target.value)}
+                className="w-full px-2 py-1.5 rounded-md text-sm outline-none"
+                style={{ border: `1px solid ${LINE}`, background: "#fff", color: newLevel ? INK : MUTED }}
+              >
+                <option value="">Select level</option>
+                <option>ND I</option>
+                <option>ND II</option>
+                <option>HND I</option>
+                <option>HND II</option>
+              </select>
+              <select
+                value={newSemester}
+                onChange={(e) => setNewSemester(e.target.value)}
+                className="w-full px-2 py-1.5 rounded-md text-sm outline-none"
+                style={{ border: `1px solid ${LINE}`, background: "#fff", color: newSemester ? INK : MUTED }}
+              >
+                <option value="">Select semester</option>
+                <option>First Semester</option>
+                <option>Second Semester</option>
+              </select>
+              <input
+                value={newSession}
+                onChange={(e) => setNewSession(e.target.value)}
+                placeholder="Session e.g. 2024/2025"
+                className="w-full px-2 py-1.5 rounded-md text-sm outline-none"
+                style={{ border: `1px solid ${LINE}` }}
+              />
               <button onClick={addCourse} className="w-full py-1.5 rounded-md text-sm font-medium" style={{ background: INK, color: PAPER }}>
                 Add course
               </button>
@@ -949,6 +1002,11 @@ function ManagePage(props) {
                 <div>
                   <div style={{ fontFamily: MONO, fontSize: 12, color: SLATE }}>{c.code}</div>
                   <div style={{ color: INK }}>{c.title}</div>
+                  {(c.level || c.session) && (
+                    <div className="text-xs mt-0.5" style={{ color: MUTED }}>
+                      {[c.level, c.session].filter(Boolean).join(" · ")}
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={(e) => {
@@ -1024,6 +1082,8 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
           rows.push({
             matric,
             name,
+            department: (row.department || "").trim(),
+            programme:  (row.programme  || "").trim(),
             q1: clamp(parseInt(row.q1, 10) || 0, 999),
             q2: clamp(parseInt(row.q2, 10) || 0, 999),
             q3: clamp(parseInt(row.q3, 10) || 0, 999),
@@ -1049,8 +1109,8 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
 
   function handleDownloadSample() {
     const sample =
-      "matric,name,q1,q2,q3,q4,q5,q6,q7,q8,ca\n" +
-      "U2022/300111,Sample Student,8,9,7,6,8,7,6,9,25\n";
+      "matric,name,department,programme,q1,q2,q3,q4,q5,q6,q7,q8,ca\n" +
+      "U2022/300111,Sample Student,Computer Science,ND,8,9,7,6,8,7,6,9,25\n";
     const blob = new Blob([sample], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -1073,6 +1133,11 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
           <div>
             <div style={{ fontFamily: MONO, fontSize: 12, color: SLATE }}>{course.code}</div>
             <h2 style={{ color: INK, fontFamily: SERIF, fontWeight: 600, fontSize: "1.1rem" }}>{course.title}</h2>
+            <div className="flex flex-wrap gap-2 mt-1">
+              {course.level    && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: PAPER, border: `1px solid ${LINE}`, color: SLATE }}>{course.level}</span>}
+              {course.semester && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: PAPER, border: `1px solid ${LINE}`, color: SLATE }}>{course.semester}</span>}
+              {course.session  && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: PAPER, border: `1px solid ${LINE}`, color: SLATE }}>{course.session}</span>}
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileChange} style={{ display: "none" }} />
@@ -1104,7 +1169,7 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
 
         <table className="w-full" style={{ borderCollapse: "collapse" }}>
           <thead>
-            <tr>{["Matric No", "Full Name", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Exam Total /70", "C.A /30", "Grand Total /100", "Grade", "Status", ""].map((n) => col(n))}</tr>
+            <tr>{["Matric No", "Full Name", "Dept.", "Programme", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Exam Total /70", "C.A /30", "Grand Total /100", "Grade", "Status", ""].map((n) => col(n))}</tr>
           </thead>
           <tbody>
             {studentsLoading && (
@@ -1189,6 +1254,8 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
 function StudentRow({ student, courseId, courseCode, updateStudent, removeStudent, askConfirm }) {
   const [matric, setMatric] = useState(student.matric || "");
   const [name,   setName]   = useState(student.name   || "");
+  const [department, setDepartment] = useState(student.department || "");
+  const [programme,  setProgramme]  = useState(student.programme  || "");
   const [q1, setQ1] = useState(student.q1 || 0);
   const [q2, setQ2] = useState(student.q2 || 0);
   const [q3, setQ3] = useState(student.q3 || 0);
@@ -1241,6 +1308,27 @@ function StudentRow({ student, courseId, courseCode, updateStudent, removeStuden
           className="w-36 px-2 py-1 rounded-md text-sm outline-none"
           style={{ border: `1px solid ${LINE}` }}
         />
+      </td>
+      <td className="px-3 py-2">
+        <input
+          value={department}
+          onChange={(e) => { setDepartment(e.target.value); updateStudent(courseId, student._id, "department", e.target.value); }}
+          placeholder="e.g. Comp. Sci."
+          className="w-28 px-2 py-1 rounded-md text-sm outline-none"
+          style={{ border: `1px solid ${LINE}` }}
+        />
+      </td>
+      <td className="px-3 py-2">
+        <select
+          value={programme}
+          onChange={(e) => { setProgramme(e.target.value); updateStudent(courseId, student._id, "programme", e.target.value); }}
+          className="w-20 px-1 py-1 rounded-md text-sm outline-none"
+          style={{ border: `1px solid ${LINE}`, color: programme ? INK : MUTED }}
+        >
+          <option value="">—</option>
+          <option>ND</option>
+          <option>HND</option>
+        </select>
       </td>
       <td className="px-2 py-2">{numField(q1, setQ1, "q1", 999)}</td>
       <td className="px-2 py-2">{numField(q2, setQ2, "q2", 999)}</td>
