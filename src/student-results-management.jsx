@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import Papa from "papaparse";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
 import {
   BarChart,
   Bar,
@@ -1120,6 +1123,125 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
     URL.revokeObjectURL(url);
   }
 
+  function exportExcel() {
+    const wb = XLSX.utils.book_new();
+    const filename = `${course.code}_Results_${course.session || "export"}`;
+
+    // Sheet 1: Full Results
+    const rows = students.map((s, i) => {
+      const et = Math.min(70, (s.q1||0)+(s.q2||0)+(s.q3||0)+(s.q4||0)+(s.q5||0)+(s.q6||0)+(s.q7||0)+(s.q8||0));
+      const gt = Math.min(100, et + (s.ca||0));
+      return [i+1, s.matric||"", s.name||"", s.department||"", s.programme||"",
+              s.q1||0, s.q2||0, s.q3||0, s.q4||0, s.q5||0, s.q6||0, s.q7||0, s.q8||0,
+              et, s.ca||0, gt, getGrade(gt), getStatus(gt)];
+    });
+    const resultsSheet = XLSX.utils.aoa_to_sheet([
+      [`COURSE: ${course.code} — ${course.title}`],
+      [`Level: ${course.level||"—"}   Semester: ${course.semester||"—"}   Session: ${course.session||"—"}`],
+      [],
+      ["#","Matric No","Full Name","Department","Programme","Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8","Exam Total /70","C.A /30","Grand Total /100","Grade","Status"],
+      ...rows,
+    ]);
+    XLSX.utils.book_append_sheet(wb, resultsSheet, "Results");
+
+    // Sheet 2: Analysis
+    const failed = (summary?.failedStudents || []);
+    const analysisSheet = XLSX.utils.aoa_to_sheet([
+      ["RESULT ANALYSIS"],
+      [],
+      ["Total Registered", summary?.totalStudents || students.length],
+      ["Total Sat for Exam", summary?.totalSat || 0],
+      ["Total Passed",      summary?.pass || 0],
+      ["Total Failed",      summary?.fail || 0],
+      ["Pass Rate",         `${summary?.passRate || 0}%`],
+      [],
+      ["GRADE DISTRIBUTION"],
+      ["Grade","Count"],
+      ...Object.entries(summary?.gradeCounts || {}).map(([g,c]) => [g, c]),
+      [],
+      ["FAILED STUDENTS"],
+      ["Matric No","Name","Department","Programme","Exam Total","C.A","Grand Total","Grade"],
+      ...failed.map(s => [s.matric, s.name, s.department, s.programme, s.examTotal, s.ca, s.grandTotal, s.grade]),
+    ]);
+    XLSX.utils.book_append_sheet(wb, analysisSheet, "Analysis");
+
+    XLSX.writeFile(wb, `${filename}.xlsx`);
+  }
+
+  function exportPDF() {
+    const filename = `${course.code}_Results_${course.session || "export"}`;
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+    // Header
+    doc.setFontSize(15);
+    doc.setTextColor(22, 36, 62);
+    doc.text(`${course.code}  —  ${course.title}`, 14, 16);
+    doc.setFontSize(9);
+    doc.setTextColor(91, 100, 114);
+    const meta = [course.level, course.semester, course.session].filter(Boolean).join("   |   ");
+    if (meta) doc.text(meta, 14, 22);
+
+    // Summary table
+    if (summary) {
+      doc.setFontSize(11);
+      doc.setTextColor(22, 36, 62);
+      doc.text("Result Summary", 14, 30);
+      doc.autoTable({
+        startY: 33,
+        head: [["Registered", "Sat for Exam", "Passed", "Failed", "Pass Rate"]],
+        body: [[summary.totalStudents, summary.totalSat, summary.pass, summary.fail, `${summary.passRate}%`]],
+        theme: "grid",
+        headStyles: { fillColor: [22, 36, 62], textColor: 255, fontSize: 9 },
+        bodyStyles: { fontSize: 9 },
+        columnStyles: { 4: { textColor: summary.passRate >= 50 ? [47,107,79] : [140,47,57] } },
+      });
+    }
+
+    // Full results table
+    const y1 = (doc.lastAutoTable?.finalY || 33) + 8;
+    doc.setFontSize(11);
+    doc.setTextColor(22, 36, 62);
+    doc.text("Student Results", 14, y1);
+    doc.autoTable({
+      startY: y1 + 3,
+      head: [["#","Matric No","Name","Dept","Prog","Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8","Exam","CA","Total","Grade","Status"]],
+      body: students.map((s, i) => {
+        const et = Math.min(70,(s.q1||0)+(s.q2||0)+(s.q3||0)+(s.q4||0)+(s.q5||0)+(s.q6||0)+(s.q7||0)+(s.q8||0));
+        const gt = Math.min(100, et + (s.ca||0));
+        return [i+1, s.matric||"", s.name||"", s.department||"", s.programme||"",
+                s.q1||0, s.q2||0, s.q3||0, s.q4||0, s.q5||0, s.q6||0, s.q7||0, s.q8||0,
+                et, s.ca||0, gt, getGrade(gt), getStatus(gt)];
+      }),
+      theme: "striped",
+      headStyles: { fillColor: [22, 36, 62], textColor: 255, fontSize: 8 },
+      bodyStyles: { fontSize: 8 },
+      didParseCell: (data) => {
+        if (data.section === "body" && data.column.index === 17) {
+          data.cell.styles.textColor = data.cell.raw === "PASS" ? [47,107,79] : [140,47,57];
+          data.cell.styles.fontStyle = "bold";
+        }
+      },
+    });
+
+    // Failed students on new page if any
+    if (summary?.failedStudents?.length > 0) {
+      doc.addPage();
+      doc.setFontSize(13);
+      doc.setTextColor(140, 47, 57);
+      doc.text(`Failed Students — ${course.code}  (${summary.failedStudents.length})`, 14, 16);
+      doc.autoTable({
+        startY: 20,
+        head: [["#","Matric No","Name","Department","Programme","Exam Total","C.A","Grand Total","Grade"]],
+        body: summary.failedStudents.map((s, i) => [i+1, s.matric||"", s.name||"", s.department||"", s.programme||"", s.examTotal, s.ca, s.grandTotal, s.grade]),
+        theme: "grid",
+        headStyles: { fillColor: [140, 47, 57], textColor: 255, fontSize: 9 },
+        bodyStyles: { fontSize: 9 },
+      });
+    }
+
+    doc.save(`${filename}.pdf`);
+  }
+
   const col = (n) => (
     <th key={n} className="text-left px-3 py-2 text-xs uppercase tracking-wide" style={{ color: MUTED, fontFamily: SANS, borderBottom: `1px solid ${LINE}` }}>
       {n}
@@ -1154,6 +1276,20 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
               style={{ border: `1px solid ${INK}`, color: INK }}
             >
               <Upload size={14} /> Upload CSV
+            </button>
+            <button
+              onClick={exportExcel}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors duration-150"
+              style={{ background: PASS_C, color: "#FFFFFF" }}
+            >
+              <Download size={14} /> Export Excel
+            </button>
+            <button
+              onClick={exportPDF}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors duration-150"
+              style={{ background: FAIL_C, color: "#FFFFFF" }}
+            >
+              <Download size={14} /> Export PDF
             </button>
             <button onClick={() => addStudent(course._id)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium" style={{ background: INK, color: PAPER }}>
               <Plus size={14} /> Add student
