@@ -30,6 +30,7 @@ import {
   X,
   AlertCircle,
   Menu,
+  AlertTriangle,
 } from "lucide-react";
 
 // ---------- API ----------
@@ -211,6 +212,8 @@ export default function StudentResultsApp() {
   const [confirmState, setConfirmState] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const saveTimers = useRef({});
+  const [carryoverData, setCarryoverData] = useState(null);
+  const [carryoverLoading, setCarryoverLoading] = useState(false);
 
   function askConfirm(message, onConfirm) {
     setConfirmState({ message, onConfirm });
@@ -437,9 +440,22 @@ export default function StudentResultsApp() {
     }, 500);
   }
 
+  async function loadCarryover() {
+    setCarryoverLoading(true);
+    try {
+      const data = await apiFetch("/analysis/carryover", token);
+      setCarryoverData(data);
+    } catch (err) {
+      setGeneralError(err.message);
+    } finally {
+      setCarryoverLoading(false);
+    }
+  }
+
   function goToPage(p) {
     setPage(p);
     setSidebarOpen(false);
+    if (p === "carryover" && !carryoverData) loadCarryover();
   }
 
   const selectedCourse = courses.find((c) => c._id === selectedCourseId) || null;
@@ -662,6 +678,7 @@ export default function StudentResultsApp() {
           <nav className="px-3 py-4 space-y-1">
             <SidebarItem icon={<LayoutDashboard size={16} />} label="Overview" active={page === "overview"} onClick={() => goToPage("overview")} />
             <SidebarItem icon={<BookOpen size={16} />} label="Courses & Results" active={page === "manage"} onClick={() => goToPage("manage")} />
+            <SidebarItem icon={<AlertTriangle size={16} />} label="Carry-Over" active={page === "carryover"} onClick={() => goToPage("carryover")} />
             <SidebarItem icon={<User size={16} />} label="Profile" active={page === "profile"} onClick={() => goToPage("profile")} />
           </nav>
         </div>
@@ -691,6 +708,12 @@ export default function StudentResultsApp() {
           />
         ) : page === "profile" ? (
           <ProfilePage lecturer={lecturer} saveProfile={saveProfile} profileSaved={profileSaved} />
+        ) : page === "carryover" ? (
+          <CarryoverPage
+            data={carryoverData}
+            loading={carryoverLoading}
+            onRefresh={loadCarryover}
+          />
         ) : (
           <ManagePage
             courses={courses}
@@ -1662,6 +1685,270 @@ function ResultAnalysis({ summary, course }) {
         <div className="text-sm py-4 text-center rounded-md" style={{ background: "rgba(47,107,79,0.06)", color: PASS_C, border: `1px solid rgba(47,107,79,0.2)` }}>
           🎉 All students passed this course!
         </div>
+      )}
+    </div>
+  );
+}
+
+function CarryoverPage({ data, loading, onRefresh }) {
+  const byLevel = data?.byLevel || {};
+  const levels  = Object.keys(byLevel);
+  const total   = data?.totalCarryover || 0;
+
+  // ── Excel Export ──────────────────────────────────────────
+  function exportCarryoverExcel() {
+    const wb = XLSX.utils.book_new();
+
+    // Summary sheet
+    const summaryRows = [
+      ["CARRY-OVER ANALYSIS REPORT"],
+      [`Generated: ${new Date().toLocaleDateString()}`],
+      [],
+      ["Level", "No. of Carry-Over Students"],
+      ...levels.map((lvl) => [lvl, byLevel[lvl].length]),
+      [],
+      ["TOTAL CARRY-OVER STUDENTS", total],
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryRows), "Summary");
+
+    // One sheet per level
+    levels.forEach((lvl) => {
+      const students = byLevel[lvl];
+      const rows = [
+        [`CARRY-OVER STUDENTS — ${lvl}`],
+        [],
+        ["#", "Matric No", "Full Name", "Department", "Programme", "No. of Failed Courses", "Courses Failed"],
+        ...students.map((s, i) => [
+          i + 1,
+          s.matric,
+          s.name,
+          s.department,
+          s.programme,
+          s.coursesFailed.length,
+          s.coursesFailed.map((c) => `${c.code} (${c.grandTotal})`).join(", "),
+        ]),
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), lvl.replace("/", "-"));
+    });
+
+    XLSX.writeFile(wb, `Carryover_Analysis_${new Date().toISOString().split("T")[0]}.xlsx`);
+  }
+
+  // ── PDF Export ────────────────────────────────────────────
+  function exportCarryoverPDF() {
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+
+    // Cover header
+    doc.setFillColor(22, 36, 62);
+    doc.rect(0, 0, pageW, 28, "F");
+    doc.setFontSize(16);
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.text("Carry-Over Analysis Report", 14, 12);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(200, 151, 61);
+    doc.text(`Generated: ${new Date().toLocaleDateString()}     |     Total Carry-Over Students: ${total}`, 14, 22);
+
+    // Summary table
+    let y = 34;
+    doc.setFontSize(11);
+    doc.setTextColor(22, 36, 62);
+    doc.setFont("helvetica", "bold");
+    doc.text("Summary by Level", 14, y);
+    y += 3;
+
+    autoTable(doc, {
+      startY: y,
+      head: [["Level", "No. of Carry-Over Students"]],
+      body: [
+        ...levels.map((lvl) => [lvl, byLevel[lvl].length]),
+        ["TOTAL", total],
+      ],
+      theme: "grid",
+      headStyles: { fillColor: [22, 36, 62], textColor: 255, fontSize: 9, fontStyle: "bold" },
+      bodyStyles: { fontSize: 9 },
+      columnStyles: { 1: { halign: "center", fontStyle: "bold", textColor: [140, 47, 57] } },
+      didParseCell: (data) => {
+        if (data.section === "body" && data.row.index === levels.length) {
+          data.cell.styles.fillColor = [22, 36, 62];
+          data.cell.styles.textColor = [255, 255, 255];
+          data.cell.styles.fontStyle = "bold";
+        }
+      },
+      margin: { left: 14, right: 14 },
+    });
+
+    // Per-level detail pages
+    levels.forEach((lvl) => {
+      doc.addPage();
+      const pageH = doc.internal.pageSize.getHeight();
+      doc.setFillColor(140, 47, 57);
+      doc.rect(0, 0, pageW, 22, "F");
+      doc.setFontSize(13);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.text(`Carry-Over Students — ${lvl}`, 14, 10);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(255, 220, 180);
+      doc.text(`${byLevel[lvl].length} student(s)`, 14, 18);
+
+      autoTable(doc, {
+        startY: 26,
+        head: [["#", "Matric No", "Full Name", "Department", "Programme", "Courses Failed", "Details"]],
+        body: byLevel[lvl].map((s, i) => [
+          i + 1,
+          s.matric || "—",
+          s.name   || "—",
+          s.department || "—",
+          s.programme  || "—",
+          s.coursesFailed.length,
+          s.coursesFailed.map((c) => `${c.code} (${c.grandTotal})`).join(", "),
+        ]),
+        theme: "striped",
+        headStyles: { fillColor: [140, 47, 57], textColor: 255, fontSize: 8.5, fontStyle: "bold" },
+        bodyStyles: { fontSize: 8.5 },
+        alternateRowStyles: { fillColor: [255, 248, 248] },
+        columnStyles: { 5: { halign: "center", textColor: [140, 47, 57], fontStyle: "bold" } },
+        margin: { left: 14, right: 14 },
+      });
+
+      doc.setFontSize(7.5);
+      doc.setTextColor(160, 160, 160);
+      doc.setFont("helvetica", "italic");
+      doc.text(
+        `Student Results Management System  |  Carry-Over Analysis  |  ${new Date().toLocaleDateString()}`,
+        14,
+        pageH - 6
+      );
+    });
+
+    doc.save(`Carryover_Analysis_${new Date().toISOString().split("T")[0]}.pdf`);
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div>
+          <h1 className="text-2xl mb-1" style={{ color: INK, fontFamily: SERIF, fontWeight: 600 }}>
+            Carry-Over Analysis
+          </h1>
+          <p className="text-sm" style={{ color: SLATE }}>
+            Students who failed at least one course — counted once regardless of how many courses they failed.
+          </p>
+        </div>
+        {!loading && data && (
+          <div className="flex gap-2">
+            <button
+              onClick={exportCarryoverExcel}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium"
+              style={{ background: PASS_C, color: "#FFF" }}
+            >
+              <Download size={14} /> Export Excel
+            </button>
+            <button
+              onClick={exportCarryoverPDF}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium"
+              style={{ background: FAIL_C, color: "#FFF" }}
+            >
+              <Download size={14} /> Export PDF
+            </button>
+            <button
+              onClick={onRefresh}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium"
+              style={{ border: `1px solid ${LINE}`, color: SLATE }}
+            >
+              Refresh
+            </button>
+          </div>
+        )}
+      </div>
+
+      {loading ? (
+        <p className="text-sm" style={{ color: MUTED }}>Loading carry-over data…</p>
+      ) : !data ? (
+        <p className="text-sm" style={{ color: MUTED }}>Click Refresh to load analysis.</p>
+      ) : total === 0 ? (
+        <div className="rounded-lg p-10 text-center" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+          <div className="text-3xl mb-2">🎉</div>
+          <p className="font-semibold" style={{ color: PASS_C, fontFamily: SERIF }}>No carry-over students!</p>
+          <p className="text-sm mt-1" style={{ color: SLATE }}>All students passed all courses.</p>
+        </div>
+      ) : (
+        <>
+          {/* Total summary card */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            <div className="rounded-lg p-4 col-span-2 sm:col-span-1" style={{ background: FAIL_C, border: `1px solid ${FAIL_C}` }}>
+              <div className="text-xs uppercase tracking-wide mb-1" style={{ color: "rgba(255,255,255,0.7)" }}>Total Carry-Over</div>
+              <div className="text-3xl font-semibold" style={{ color: "#FFF", fontFamily: SERIF }}>{total}</div>
+              <div className="text-xs mt-1" style={{ color: "rgba(255,255,255,0.7)" }}>students across all courses</div>
+            </div>
+            {levels.map((lvl) => (
+              <div key={lvl} className="rounded-lg p-4" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+                <div className="text-xs uppercase tracking-wide mb-1" style={{ color: MUTED }}>{lvl}</div>
+                <div className="text-2xl font-semibold" style={{ color: INK, fontFamily: SERIF }}>{byLevel[lvl].length}</div>
+                <div className="text-xs mt-1" style={{ color: SLATE }}>carry-over student(s)</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Per-level tables */}
+          {levels.map((lvl) => (
+            <div key={lvl} className="rounded-lg p-5 mb-5" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: FAIL_C }} />
+                <h2 className="font-semibold" style={{ color: INK, fontFamily: SERIF, fontSize: "1rem" }}>
+                  {lvl} — {byLevel[lvl].length} Carry-Over Student(s)
+                </h2>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full" style={{ borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      {["#", "Matric No", "Full Name", "Department", "Programme", "No. of Failed Courses", "Courses Failed"].map((h) => (
+                        <th
+                          key={h}
+                          className="text-left px-3 py-2 text-xs uppercase tracking-wide"
+                          style={{ color: MUTED, borderBottom: `1px solid ${LINE}`, fontFamily: SANS }}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {byLevel[lvl].map((s, i) => (
+                      <tr key={s.matric + i} style={{ borderBottom: `1px solid ${LINE}` }}>
+                        <td className="px-3 py-2 text-sm" style={{ color: MUTED }}>{i + 1}</td>
+                        <td className="px-3 py-2 text-sm font-medium" style={{ color: INK, fontFamily: MONO }}>{s.matric || "—"}</td>
+                        <td className="px-3 py-2 text-sm" style={{ color: INK }}>{s.name || "—"}</td>
+                        <td className="px-3 py-2 text-sm" style={{ color: SLATE }}>{s.department || "—"}</td>
+                        <td className="px-3 py-2 text-sm" style={{ color: SLATE }}>{s.programme || "—"}</td>
+                        <td className="px-3 py-2 text-sm font-semibold text-center" style={{ color: FAIL_C }}>{s.coursesFailed.length}</td>
+                        <td className="px-3 py-2 text-sm" style={{ color: SLATE }}>
+                          <div className="flex flex-wrap gap-1">
+                            {s.coursesFailed.map((c, ci) => (
+                              <span
+                                key={ci}
+                                className="px-2 py-0.5 rounded text-xs"
+                                style={{ background: "rgba(140,47,57,0.08)", color: FAIL_C, border: `1px solid rgba(140,47,57,0.2)`, fontFamily: MONO }}
+                                title={`${c.title} — Grand Total: ${c.grandTotal}`}
+                              >
+                                {c.code} ({c.grandTotal})
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </>
       )}
     </div>
   );
