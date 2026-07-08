@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
-import "jspdf-autotable";
+import autoTable from "jspdf-autotable";
 import {
   BarChart,
   Bar,
@@ -1171,72 +1171,159 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
   function exportPDF() {
     const filename = `${course.code}_Results_${course.session || "export"}`;
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+    let y = 14;
 
-    // Header
-    doc.setFontSize(15);
-    doc.setTextColor(22, 36, 62);
-    doc.text(`${course.code}  —  ${course.title}`, 14, 16);
+    // ── Header ──────────────────────────────────────────────
+    doc.setFillColor(22, 36, 62);
+    doc.rect(0, 0, pageW, 28, "F");
+    doc.setFontSize(16);
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.text(`${course.code}  —  ${course.title}`, 14, 12);
     doc.setFontSize(9);
-    doc.setTextColor(91, 100, 114);
-    const meta = [course.level, course.semester, course.session].filter(Boolean).join("   |   ");
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(200, 151, 61);
+    const meta = [
+      course.level    && `Level: ${course.level}`,
+      course.semester && `Semester: ${course.semester}`,
+      course.session  && `Session: ${course.session}`,
+    ].filter(Boolean).join("     |     ");
     if (meta) doc.text(meta, 14, 22);
+    y = 36;
 
-    // Summary table
-    if (summary) {
-      doc.setFontSize(11);
-      doc.setTextColor(22, 36, 62);
-      doc.text("Result Summary", 14, 30);
-      doc.autoTable({
-        startY: 33,
-        head: [["Registered", "Sat for Exam", "Passed", "Failed", "Pass Rate"]],
-        body: [[summary.totalStudents, summary.totalSat, summary.pass, summary.fail, `${summary.passRate}%`]],
-        theme: "grid",
-        headStyles: { fillColor: [22, 36, 62], textColor: 255, fontSize: 9 },
-        bodyStyles: { fontSize: 9 },
-        columnStyles: { 4: { textColor: summary.passRate >= 50 ? [47,107,79] : [140,47,57] } },
-      });
-    }
-
-    // Full results table
-    const y1 = (doc.lastAutoTable?.finalY || 33) + 8;
+    // ── Summary Stats ────────────────────────────────────────
     doc.setFontSize(11);
     doc.setTextColor(22, 36, 62);
-    doc.text("Student Results", 14, y1);
-    doc.autoTable({
-      startY: y1 + 3,
-      head: [["#","Matric No","Name","Dept","Prog","Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8","Exam","CA","Total","Grade","Status"]],
+    doc.setFont("helvetica", "bold");
+    doc.text("Result Summary", 14, y);
+    y += 3;
+
+    autoTable(doc, {
+      startY: y,
+      head: [["Total Registered", "Total Sat for Exam", "Total Passed", "Total Failed", "Pass Rate"]],
+      body: [[
+        summary?.totalStudents ?? students.length,
+        summary?.totalSat ?? 0,
+        summary?.pass ?? 0,
+        summary?.fail ?? 0,
+        `${summary?.passRate ?? 0}%`,
+      ]],
+      theme: "grid",
+      headStyles: { fillColor: [22, 36, 62], textColor: 255, fontSize: 9, fontStyle: "bold" },
+      bodyStyles: { fontSize: 10, fontStyle: "bold", halign: "center" },
+      columnStyles: {
+        2: { textColor: [47, 107, 79] },
+        3: { textColor: [140, 47, 57] },
+        4: { textColor: (summary?.passRate ?? 0) >= 50 ? [47, 107, 79] : [140, 47, 57] },
+      },
+      margin: { left: 14, right: 14 },
+    });
+    y = doc.lastAutoTable.finalY + 8;
+
+    // ── Grade Distribution ───────────────────────────────────
+    doc.setFontSize(11);
+    doc.setTextColor(22, 36, 62);
+    doc.setFont("helvetica", "bold");
+    doc.text("Grade Distribution", 14, y);
+    y += 3;
+
+    const grades = summary?.gradeCounts || {};
+    autoTable(doc, {
+      startY: y,
+      head: [["Grade", "A", "B", "C", "D", "E", "F"]],
+      body: [["Count",
+        grades.A ?? 0, grades.B ?? 0, grades.C ?? 0,
+        grades.D ?? 0, grades.E ?? 0, grades.F ?? 0,
+      ]],
+      theme: "grid",
+      headStyles: { fillColor: [22, 36, 62], textColor: 255, fontSize: 9 },
+      bodyStyles: { fontSize: 10, halign: "center" },
+      columnStyles: { 6: { textColor: [140, 47, 57] } },
+      margin: { left: 14, right: 14 },
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
+    // ── Full Results Table ───────────────────────────────────
+    doc.setFontSize(11);
+    doc.setTextColor(22, 36, 62);
+    doc.setFont("helvetica", "bold");
+    doc.text("Complete Student Results", 14, y);
+    y += 3;
+
+    autoTable(doc, {
+      startY: y,
+      head: [["#", "Matric No", "Name", "Dept", "Prog", "Q1","Q2","Q3","Q4","Q5","Q6","Q7","Q8", "Exam /70", "C.A /30", "Total /100", "Grade", "Status"]],
       body: students.map((s, i) => {
         const et = Math.min(70,(s.q1||0)+(s.q2||0)+(s.q3||0)+(s.q4||0)+(s.q5||0)+(s.q6||0)+(s.q7||0)+(s.q8||0));
         const gt = Math.min(100, et + (s.ca||0));
-        return [i+1, s.matric||"", s.name||"", s.department||"", s.programme||"",
+        const gr = getGrade(gt);
+        const st = getStatus(gt);
+        return [i+1, s.matric||"—", s.name||"—", s.department||"—", s.programme||"—",
                 s.q1||0, s.q2||0, s.q3||0, s.q4||0, s.q5||0, s.q6||0, s.q7||0, s.q8||0,
-                et, s.ca||0, gt, getGrade(gt), getStatus(gt)];
+                et, s.ca||0, gt, gr, st];
       }),
       theme: "striped",
-      headStyles: { fillColor: [22, 36, 62], textColor: 255, fontSize: 8 },
-      bodyStyles: { fontSize: 8 },
+      headStyles: { fillColor: [22, 36, 62], textColor: 255, fontSize: 7.5, fontStyle: "bold" },
+      bodyStyles: { fontSize: 7.5 },
+      alternateRowStyles: { fillColor: [250, 248, 243] },
       didParseCell: (data) => {
-        if (data.section === "body" && data.column.index === 17) {
-          data.cell.styles.textColor = data.cell.raw === "PASS" ? [47,107,79] : [140,47,57];
-          data.cell.styles.fontStyle = "bold";
+        if (data.section === "body") {
+          const status = data.row.raw[17];
+          if (data.column.index === 17) {
+            data.cell.styles.textColor = status === "PASS" ? [47,107,79] : [140,47,57];
+            data.cell.styles.fontStyle = "bold";
+          }
+          if (data.column.index === 16 && status === "FAIL") {
+            data.cell.styles.textColor = [140,47,57];
+          }
         }
       },
+      margin: { left: 14, right: 14 },
     });
 
-    // Failed students on new page if any
-    if (summary?.failedStudents?.length > 0) {
+    // ── Failed Students Page ─────────────────────────────────
+    const failed = summary?.failedStudents || [];
+    if (failed.length > 0) {
       doc.addPage();
+      doc.setFillColor(22, 36, 62);
+      doc.rect(0, 0, pageW, 20, "F");
       doc.setFontSize(13);
-      doc.setTextColor(140, 47, 57);
-      doc.text(`Failed Students — ${course.code}  (${summary.failedStudents.length})`, 14, 16);
-      doc.autoTable({
-        startY: 20,
-        head: [["#","Matric No","Name","Department","Programme","Exam Total","C.A","Grand Total","Grade"]],
-        body: summary.failedStudents.map((s, i) => [i+1, s.matric||"", s.name||"", s.department||"", s.programme||"", s.examTotal, s.ca, s.grandTotal, s.grade]),
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.text(`Failed Students — ${course.code}`, 14, 10);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(200, 151, 61);
+      doc.text(`${failed.length} student(s) failed this course`, 14, 17);
+
+      autoTable(doc, {
+        startY: 25,
+        head: [["#", "Matric No", "Full Name", "Department", "Programme", "Exam Total /70", "C.A /30", "Grand Total /100", "Grade"]],
+        body: failed.map((s, i) => [
+          i+1, s.matric||"—", s.name||"—", s.department||"—", s.programme||"—",
+          s.examTotal, s.ca, s.grandTotal, s.grade,
+        ]),
         theme: "grid",
-        headStyles: { fillColor: [140, 47, 57], textColor: 255, fontSize: 9 },
+        headStyles: { fillColor: [140, 47, 57], textColor: 255, fontSize: 9, fontStyle: "bold" },
         bodyStyles: { fontSize: 9 },
+        alternateRowStyles: { fillColor: [255, 248, 248] },
+        columnStyles: {
+          7: { textColor: [140, 47, 57], fontStyle: "bold" },
+          8: { textColor: [140, 47, 57], fontStyle: "bold" },
+        },
+        margin: { left: 14, right: 14 },
       });
+
+      // Footer note on failed page
+      const pageH = doc.internal.pageSize.getHeight();
+      doc.setFontSize(8);
+      doc.setTextColor(140, 140, 140);
+      doc.setFont("helvetica", "italic");
+      doc.text(
+        `Generated by Student Results Management System  |  ${course.code}  |  ${new Date().toLocaleDateString()}`,
+        14, pageH - 8
+      );
     }
 
     doc.save(`${filename}.pdf`);
