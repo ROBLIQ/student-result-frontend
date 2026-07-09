@@ -31,6 +31,7 @@ import {
   AlertCircle,
   Menu,
   AlertTriangle,
+  Search,
 } from "lucide-react";
 
 // ---------- API ----------
@@ -214,6 +215,8 @@ export default function StudentResultsApp() {
   const saveTimers = useRef({});
   const [carryoverData, setCarryoverData] = useState(null);
   const [carryoverLoading, setCarryoverLoading] = useState(false);
+  const [searchResults, setSearchResults] = useState(null);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   function askConfirm(message, onConfirm) {
     setConfirmState({ message, onConfirm });
@@ -440,8 +443,20 @@ export default function StudentResultsApp() {
     }, 500);
   }
 
+  async function globalSearch(params) {
+    setSearchLoading(true);
+    try {
+      const qs = new URLSearchParams(params).toString();
+      const data = await apiFetch(`/analysis/search?${qs}`, token);
+      setSearchResults(data.results);
+    } catch (err) {
+      setGeneralError(err.message);
+    } finally {
+      setSearchLoading(false);
+    }
+  }
+
   async function loadCarryover() {
-    setCarryoverLoading(true);
     try {
       const data = await apiFetch("/analysis/carryover", token);
       setCarryoverData(data);
@@ -678,6 +693,7 @@ export default function StudentResultsApp() {
           <nav className="px-3 py-4 space-y-1">
             <SidebarItem icon={<LayoutDashboard size={16} />} label="Overview" active={page === "overview"} onClick={() => goToPage("overview")} />
             <SidebarItem icon={<BookOpen size={16} />} label="Courses & Results" active={page === "manage"} onClick={() => goToPage("manage")} />
+            <SidebarItem icon={<Search size={16} />} label="Search Students" active={page === "search"} onClick={() => goToPage("search")} />
             <SidebarItem icon={<AlertTriangle size={16} />} label="Carry-Over" active={page === "carryover"} onClick={() => goToPage("carryover")} />
             <SidebarItem icon={<User size={16} />} label="Profile" active={page === "profile"} onClick={() => goToPage("profile")} />
           </nav>
@@ -708,6 +724,12 @@ export default function StudentResultsApp() {
           />
         ) : page === "profile" ? (
           <ProfilePage lecturer={lecturer} saveProfile={saveProfile} profileSaved={profileSaved} />
+        ) : page === "search" ? (
+          <SearchPage
+            onSearch={globalSearch}
+            results={searchResults}
+            loading={searchLoading}
+          />
         ) : page === "carryover" ? (
           <CarryoverPage
             data={carryoverData}
@@ -1076,6 +1098,18 @@ function ManagePage(props) {
 function CourseSheet({ course, students, studentsLoading, summary, addStudent, addStudentsBulk, removeStudent, updateStudent, askConfirm }) {
   const fileInputRef = useRef(null);
   const [uploadMessage, setUploadMessage] = useState(null);
+  const [filterQuery, setFilterQuery] = useState("");
+  const [filterDept, setFilterDept] = useState("");
+  const [filterProg, setFilterProg] = useState("");
+
+  // Filter students client-side based on search inputs
+  const filteredStudents = students.filter((s) => {
+    const q = filterQuery.toLowerCase();
+    const matchQ = !q || (s.name || "").toLowerCase().includes(q) || (s.matric || "").toLowerCase().includes(q);
+    const matchD = !filterDept || (s.department || "").toLowerCase().includes(filterDept.toLowerCase());
+    const matchP = !filterProg || s.programme === filterProg;
+    return matchQ && matchD && matchP;
+  });
 
   const pass = summary?.pass || 0;
   const fail = summary?.fail || 0;
@@ -1413,6 +1447,51 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
           </div>
         )}
 
+        {/* Within-course search & filter */}
+        <div className="flex flex-wrap gap-2 mb-3">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md flex-1 min-w-[180px]" style={{ border: `1px solid ${LINE}`, background: "#fff" }}>
+            <Search size={13} color={MUTED} />
+            <input
+              value={filterQuery}
+              onChange={(e) => setFilterQuery(e.target.value)}
+              placeholder="Search by name or matric…"
+              className="outline-none text-sm w-full"
+              style={{ color: INK }}
+            />
+          </div>
+          <input
+            value={filterDept}
+            onChange={(e) => setFilterDept(e.target.value)}
+            placeholder="Filter by department…"
+            className="px-3 py-1.5 rounded-md text-sm outline-none"
+            style={{ border: `1px solid ${LINE}`, minWidth: 160 }}
+          />
+          <select
+            value={filterProg}
+            onChange={(e) => setFilterProg(e.target.value)}
+            className="px-3 py-1.5 rounded-md text-sm outline-none"
+            style={{ border: `1px solid ${LINE}`, background: "#fff", color: filterProg ? INK : MUTED }}
+          >
+            <option value="">All programmes</option>
+            <option>ND</option>
+            <option>HND</option>
+          </select>
+          {(filterQuery || filterDept || filterProg) && (
+            <button
+              onClick={() => { setFilterQuery(""); setFilterDept(""); setFilterProg(""); }}
+              className="px-3 py-1.5 rounded-md text-sm"
+              style={{ border: `1px solid ${LINE}`, color: FAIL_C }}
+            >
+              Clear filters
+            </button>
+          )}
+          {(filterQuery || filterDept || filterProg) && (
+            <span className="px-3 py-1.5 text-sm" style={{ color: MUTED }}>
+              Showing {filteredStudents.length} of {students.length}
+            </span>
+          )}
+        </div>
+
         <table className="w-full" style={{ borderCollapse: "collapse" }}>
           <thead>
             <tr>{["Matric No", "Full Name", "Dept.", "Programme", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Exam Total /70", "C.A /30", "Grand Total /100", "Grade", "Status", ""].map((n) => col(n))}</tr>
@@ -1427,13 +1506,20 @@ function CourseSheet({ course, students, studentsLoading, summary, addStudent, a
             )}
             {!studentsLoading && students.length === 0 && (
               <tr>
-                <td colSpan={10} className="text-center py-6 text-sm" style={{ color: MUTED }}>
+                <td colSpan={18} className="text-center py-6 text-sm" style={{ color: MUTED }}>
                   No students yet. Click "Add student" to begin.
                 </td>
               </tr>
             )}
+            {!studentsLoading && students.length > 0 && filteredStudents.length === 0 && (
+              <tr>
+                <td colSpan={18} className="text-center py-6 text-sm" style={{ color: MUTED }}>
+                  No students match your search/filter. Try clearing the filters.
+                </td>
+              </tr>
+            )}
             {!studentsLoading &&
-              students.map((s) => (
+              filteredStudents.map((s) => (
                 <StudentRow
                   key={s._id}
                   student={s}
@@ -1949,6 +2035,194 @@ function CarryoverPage({ data, loading, onRefresh }) {
             </div>
           ))}
         </>
+      )}
+    </div>
+  );
+}
+
+function SearchPage({ onSearch, results, loading }) {
+  const [q, setQ]           = useState("");
+  const [dept, setDept]     = useState("");
+  const [prog, setProg]     = useState("");
+  const [level, setLevel]   = useState("");
+  const searchTimer = useRef(null);
+
+  function handleSearch(e) {
+    e.preventDefault();
+    onSearch({ q, department: dept, programme: prog, level });
+  }
+
+  function handleKeyUp() {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => {
+      if (q.length >= 2 || dept || prog || level) {
+        onSearch({ q, department: dept, programme: prog, level });
+      }
+    }, 400);
+  }
+
+  const passed = results?.filter((r) => r.status === "PASS").length || 0;
+  const failed = results?.filter((r) => r.status === "FAIL").length || 0;
+
+  return (
+    <div>
+      <h1 className="text-2xl mb-1" style={{ color: INK, fontFamily: SERIF, fontWeight: 600 }}>
+        Search Students
+      </h1>
+      <p className="text-sm mb-5" style={{ color: SLATE }}>
+        Search across all your courses by name, matric number, department, programme, or level.
+      </p>
+
+      {/* Search form */}
+      <form
+        onSubmit={handleSearch}
+        className="rounded-lg p-4 mb-6"
+        style={{ background: "#FFF", border: `1px solid ${LINE}` }}
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+          <div
+            className="flex items-center gap-2 px-3 py-2 rounded-md col-span-1 sm:col-span-2"
+            style={{ border: `1px solid ${LINE}`, background: PAPER }}
+          >
+            <Search size={14} color={MUTED} />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyUp={handleKeyUp}
+              placeholder="Name or matric number…"
+              className="outline-none text-sm w-full"
+              style={{ background: "transparent", color: INK }}
+            />
+          </div>
+          <input
+            value={dept}
+            onChange={(e) => { setDept(e.target.value); }}
+            onKeyUp={handleKeyUp}
+            placeholder="Department"
+            className="px-3 py-2 rounded-md text-sm outline-none"
+            style={{ border: `1px solid ${LINE}` }}
+          />
+          <div className="flex gap-2">
+            <select
+              value={prog}
+              onChange={(e) => { setProg(e.target.value); handleKeyUp(); }}
+              className="flex-1 px-3 py-2 rounded-md text-sm outline-none"
+              style={{ border: `1px solid ${LINE}`, background: "#FFF", color: prog ? INK : MUTED }}
+            >
+              <option value="">All programmes</option>
+              <option>ND</option>
+              <option>HND</option>
+            </select>
+            <select
+              value={level}
+              onChange={(e) => { setLevel(e.target.value); handleKeyUp(); }}
+              className="flex-1 px-3 py-2 rounded-md text-sm outline-none"
+              style={{ border: `1px solid ${LINE}`, background: "#FFF", color: level ? INK : MUTED }}
+            >
+              <option value="">All levels</option>
+              <option>ND I</option>
+              <option>ND II</option>
+              <option>HND I</option>
+              <option>HND II</option>
+            </select>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            className="px-4 py-2 rounded-md text-sm font-medium"
+            style={{ background: INK, color: PAPER }}
+          >
+            Search
+          </button>
+          {(q || dept || prog || level) && (
+            <button
+              type="button"
+              onClick={() => { setQ(""); setDept(""); setProg(""); setLevel(""); }}
+              className="px-4 py-2 rounded-md text-sm"
+              style={{ border: `1px solid ${LINE}`, color: SLATE }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      </form>
+
+      {/* Results */}
+      {loading && (
+        <p className="text-sm" style={{ color: MUTED }}>Searching…</p>
+      )}
+
+      {!loading && results === null && (
+        <div className="text-center py-12 rounded-lg" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+          <Search size={32} color={LINE} className="mx-auto mb-3" />
+          <p className="text-sm" style={{ color: MUTED }}>Enter a name, matric number, or use the filters above to search.</p>
+        </div>
+      )}
+
+      {!loading && results !== null && results.length === 0 && (
+        <div className="text-center py-10 rounded-lg" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+          <p className="text-sm font-medium" style={{ color: INK }}>No students found</p>
+          <p className="text-sm mt-1" style={{ color: MUTED }}>Try a different name, matric, or adjust the filters.</p>
+        </div>
+      )}
+
+      {!loading && results && results.length > 0 && (
+        <div className="rounded-lg" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+          {/* Result summary bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3" style={{ borderBottom: `1px solid ${LINE}` }}>
+            <span className="text-sm font-medium" style={{ color: INK }}>
+              {results.length} result{results.length !== 1 ? "s" : ""} found
+            </span>
+            <div className="flex gap-3 text-sm">
+              <span style={{ color: PASS_C }}>✓ {passed} passed</span>
+              <span style={{ color: FAIL_C }}>✗ {failed} failed</span>
+            </div>
+          </div>
+
+          {/* Results table */}
+          <div className="overflow-x-auto">
+            <table className="w-full" style={{ borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  {["Matric No", "Full Name", "Department", "Programme", "Course", "Level", "Session", "Exam /70", "C.A /30", "Total /100", "Grade", "Status"].map((h) => (
+                    <th
+                      key={h}
+                      className="text-left px-3 py-2 text-xs uppercase tracking-wide"
+                      style={{ color: MUTED, borderBottom: `1px solid ${LINE}`, fontFamily: SANS, whiteSpace: "nowrap" }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {results.map((r, i) => (
+                  <tr key={r._id || i} style={{ borderBottom: `1px solid ${LINE}`, background: i % 2 === 0 ? "#FFF" : PAPER }}>
+                    <td className="px-3 py-2 text-sm font-medium" style={{ color: INK, fontFamily: MONO, whiteSpace: "nowrap" }}>{r.matric || "—"}</td>
+                    <td className="px-3 py-2 text-sm" style={{ color: INK, whiteSpace: "nowrap" }}>{r.name || "—"}</td>
+                    <td className="px-3 py-2 text-sm" style={{ color: SLATE }}>{r.department || "—"}</td>
+                    <td className="px-3 py-2 text-sm" style={{ color: SLATE }}>{r.programme || "—"}</td>
+                    <td className="px-3 py-2 text-sm" style={{ color: INK, whiteSpace: "nowrap" }}>
+                      <span style={{ fontFamily: MONO, color: GOLD }}>{r.course?.code}</span>
+                      {" — "}
+                      <span style={{ color: SLATE }}>{r.course?.title}</span>
+                    </td>
+                    <td className="px-3 py-2 text-sm" style={{ color: SLATE, whiteSpace: "nowrap" }}>{r.course?.level || "—"}</td>
+                    <td className="px-3 py-2 text-sm" style={{ color: SLATE, whiteSpace: "nowrap" }}>{r.course?.session || "—"}</td>
+                    <td className="px-3 py-2 text-sm text-center" style={{ color: SLATE, fontFamily: MONO }}>{r.examTotal}</td>
+                    <td className="px-3 py-2 text-sm text-center" style={{ color: SLATE, fontFamily: MONO }}>{r.ca}</td>
+                    <td className="px-3 py-2 text-sm font-semibold text-center" style={{ color: INK, fontFamily: MONO }}>{r.grandTotal}</td>
+                    <td className="px-3 py-2 text-sm font-semibold" style={{ color: GRADE_COLORS[r.grade] || INK }}>{r.grade}</td>
+                    <td className="px-3 py-2">
+                      <GradeStamp status={r.status} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </div>
   );
