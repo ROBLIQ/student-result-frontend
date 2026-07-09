@@ -2320,6 +2320,7 @@ function AdminDashboard({ admin, token, onLogout }) {
   const [expandedLecturer, setExpandedLecturer] = useState(null);
   const [lecturerCourses, setLecturerCourses]   = useState({});
   const [failedFilters, setFailedFilters] = useState({ department:"", level:"", session:"" });
+  const [confirmDelete, setConfirmDelete] = useState(null); // { id, name }
 
   async function adminFetch(path) {
     return apiFetch(path, token);
@@ -2352,6 +2353,19 @@ function AdminDashboard({ admin, token, onLogout }) {
     }
   }
 
+  async function deleteLecturer(id) {
+    try {
+      await apiFetch(`/admin/lecturers/${id}`, token, { method: "DELETE" });
+      setLecturers((prev) => prev.filter((l) => l._id !== id));
+      if (expandedLecturer === id) setExpandedLecturer(null);
+      // Refresh overview stats since data changed
+      setOverview(null);
+    } catch (err) {
+      console.error("Delete failed:", err.message);
+    }
+    setConfirmDelete(null);
+  }
+
   async function applyFailedFilters() {
     setLoading(true);
     try {
@@ -2363,6 +2377,31 @@ function AdminDashboard({ admin, token, onLogout }) {
   return (
     <div className="min-h-screen w-full flex flex-col md:flex-row" style={{ background: PAPER, fontFamily: SANS }}>
       <FontImport />
+
+      {/* Delete confirmation dialog */}
+      {confirmDelete && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: "rgba(22,36,62,0.5)" }}>
+          <div className="rounded-lg p-6 max-w-sm w-full" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+            <div className="flex items-center gap-2 mb-2">
+              <AlertCircle size={18} color={FAIL_C} />
+              <h3 className="font-semibold" style={{ color: INK, fontFamily: SERIF, fontSize: "1rem" }}>Delete Lecturer Account?</h3>
+            </div>
+            <p className="text-sm mb-1" style={{ color: SLATE }}>You are about to permanently delete:</p>
+            <p className="text-sm font-semibold mb-3" style={{ color: FAIL_C }}>{confirmDelete.name}</p>
+            <p className="text-sm mb-5" style={{ color: SLATE }}>
+              This will also delete <strong>all their courses and student records</strong>. This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setConfirmDelete(null)} className="px-4 py-2 rounded-md text-sm font-medium" style={{ border: `1px solid ${LINE}`, color: SLATE }}>
+                Cancel
+              </button>
+              <button onClick={() => deleteLecturer(confirmDelete.id)} className="px-4 py-2 rounded-md text-sm font-medium" style={{ background: FAIL_C, color: "#FFF" }}>
+                Yes, delete account
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mobile top bar */}
       <div className="md:hidden flex items-center justify-between px-4 py-3 sticky top-0 z-30" style={{ background: "#7C3AED" }}>
@@ -2476,7 +2515,7 @@ function AdminDashboard({ admin, token, onLogout }) {
             <div className="rounded-lg overflow-hidden" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
               <table className="w-full" style={{ borderCollapse: "collapse" }}>
                 <thead>
-                  <tr>{["Name","Email","Department","Courses","Students","Passed","Failed","Pass Rate",""].map(h=>(
+                  <tr>{["Name","Email","Department","Courses","Students","Passed","Failed","Pass Rate","",""].map(h=>(
                     <th key={h} className="text-left px-4 py-3 text-xs uppercase tracking-wide" style={{ color: MUTED, borderBottom:`1px solid ${LINE}` }}>{h}</th>
                   ))}</tr>
                 </thead>
@@ -2495,6 +2534,16 @@ function AdminDashboard({ admin, token, onLogout }) {
                         <td className="px-4 py-3">
                           <button onClick={() => toggleLecturer(l._id)} className="text-xs px-2 py-1 rounded" style={{ border:`1px solid ${LINE}`, color: SLATE }}>
                             {expandedLecturer===l._id ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}
+                          </button>
+                        </td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => setConfirmDelete({ id: l._id, name: l.name })}
+                            className="p-1.5 rounded-md transition-colors duration-150"
+                            style={{ background: "rgba(140,47,57,0.08)", border: `1px solid rgba(140,47,57,0.2)` }}
+                            title="Delete lecturer account"
+                          >
+                            <Trash2 size={14} color={FAIL_C} />
                           </button>
                         </td>
                       </tr>
