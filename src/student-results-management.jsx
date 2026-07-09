@@ -32,6 +32,10 @@ import {
   Menu,
   AlertTriangle,
   Search,
+  Shield,
+  Users,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 // ---------- API ----------
@@ -187,10 +191,16 @@ export default function StudentResultsApp() {
   const [token, setToken] = useState(() => localStorage.getItem("rms_token") || "");
   const [authChecked, setAuthChecked] = useState(false);
   const [lecturer, setLecturer] = useState(null);
+  const [adminUser, setAdminUser] = useState(null);
   const [authMode, setAuthMode] = useState("login"); // 'login' | 'register'
-  const [authForm, setAuthForm] = useState({ name: "", email: "", password: "", department: "" });
+  const [authRole, setAuthRole] = useState("lecturer"); // 'lecturer' | 'admin'
+  const [authForm, setAuthForm] = useState({ name: "", email: "", password: "", department: "", institution: "", secret: "" });
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
+
+
+
+
 
   // ---- data state ----
   const [courses, setCourses] = useState([]);
@@ -228,12 +238,20 @@ export default function StudentResultsApp() {
       setAuthChecked(true);
       return;
     }
-    apiFetch("/auth/me", token)
-      .then((data) => setLecturer(data))
-      .catch(() => {
-        localStorage.removeItem("rms_token");
-        setToken("");
+    // Try admin first, then lecturer
+    apiFetch("/admin/me", token)
+      .then((data) => {
+        if (data.role === "admin") setAdminUser(data);
+        else setLecturer(data);
       })
+      .catch(() =>
+        apiFetch("/auth/me", token)
+          .then((data) => setLecturer(data))
+          .catch(() => {
+            localStorage.removeItem("rms_token");
+            setToken("");
+          })
+      )
       .finally(() => setAuthChecked(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -292,20 +310,25 @@ export default function StudentResultsApp() {
     setAuthError("");
     setAuthLoading(true);
     try {
-      const path = authMode === "login" ? "/auth/login" : "/auth/register";
-      const body =
-        authMode === "login"
+      if (authRole === "admin") {
+        const path = authMode === "login" ? "/admin/login" : "/admin/register";
+        const body = authMode === "login"
           ? { email: authForm.email, password: authForm.password }
-          : {
-              name: authForm.name,
-              email: authForm.email,
-              password: authForm.password,
-              department: authForm.department,
-            };
-      const data = await apiFetch(path, null, { method: "POST", body: JSON.stringify(body) });
-      localStorage.setItem("rms_token", data.token);
-      setToken(data.token);
-      setLecturer(data.lecturer);
+          : { name: authForm.name, email: authForm.email, password: authForm.password, institution: authForm.institution, secret: authForm.secret };
+        const data = await apiFetch(path, null, { method: "POST", body: JSON.stringify(body) });
+        localStorage.setItem("rms_token", data.token);
+        setToken(data.token);
+        setAdminUser(data.admin);
+      } else {
+        const path = authMode === "login" ? "/auth/login" : "/auth/register";
+        const body = authMode === "login"
+          ? { email: authForm.email, password: authForm.password }
+          : { name: authForm.name, email: authForm.email, password: authForm.password, department: authForm.department };
+        const data = await apiFetch(path, null, { method: "POST", body: JSON.stringify(body) });
+        localStorage.setItem("rms_token", data.token);
+        setToken(data.token);
+        setLecturer(data.lecturer);
+      }
     } catch (err) {
       setAuthError(err.message);
     } finally {
@@ -317,6 +340,7 @@ export default function StudentResultsApp() {
     localStorage.removeItem("rms_token");
     setToken("");
     setLecturer(null);
+    setAdminUser(null);
     setCourses([]);
     setSelectedCourseId(null);
     setSelectedStudents([]);
@@ -509,6 +533,10 @@ export default function StudentResultsApp() {
     );
   }
 
+  if (adminUser) {
+    return <AdminDashboard admin={adminUser} token={token} onLogout={handleLogout} />;
+  }
+
   if (!lecturer) {
     return (
       <div className="min-h-screen w-full flex items-center justify-center p-6" style={{ background: PAPER, fontFamily: SANS }}>
@@ -519,13 +547,34 @@ export default function StudentResultsApp() {
           style={{ background: "#FFFFFF", border: `1px solid ${LINE}` }}
         >
           <div className="w-12 h-12 rounded-full flex items-center justify-center mb-5" style={{ background: INK }}>
-            <GraduationCap size={22} color={GOLD} />
+            {authRole === "admin" ? <Shield size={22} color={GOLD} /> : <GraduationCap size={22} color={GOLD} />}
           </div>
           <h1 className="text-2xl mb-1" style={{ color: INK, fontFamily: SERIF, fontWeight: 600 }}>
             Results Portal
           </h1>
-          <p className="text-sm mb-6" style={{ color: SLATE }}>
-            {authMode === "login" ? "Sign in to your account." : "Create your lecturer account."}
+
+          {/* Role tabs */}
+          <div className="flex mb-4 rounded-md overflow-hidden" style={{ border: `1px solid ${LINE}` }}>
+            {["lecturer", "admin"].map((role) => (
+              <button
+                key={role}
+                type="button"
+                onClick={() => { setAuthRole(role); setAuthError(""); }}
+                className="flex-1 py-1.5 text-sm font-medium capitalize transition-colors duration-150"
+                style={{
+                  background: authRole === role ? INK : "#fff",
+                  color: authRole === role ? PAPER : SLATE,
+                }}
+              >
+                {role === "admin" ? "Admin" : "Lecturer"}
+              </button>
+            ))}
+          </div>
+
+          <p className="text-sm mb-4" style={{ color: SLATE }}>
+            {authRole === "admin"
+              ? authMode === "login" ? "Sign in to the admin dashboard." : "Create an admin account."
+              : authMode === "login" ? "Sign in to your lecturer account." : "Create your lecturer account."}
           </p>
 
           {authMode === "register" && (
@@ -536,7 +585,7 @@ export default function StudentResultsApp() {
               <input
                 value={authForm.name}
                 onChange={(e) => setAuthForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Dr. Funmilayo Adeyemi"
+                placeholder={authRole === "admin" ? "Admin name" : "Dr. Funmilayo Adeyemi"}
                 className="w-full px-3 py-2 rounded-md outline-none text-sm"
                 style={{ border: `1px solid ${LINE}`, color: INK }}
               />
@@ -573,7 +622,7 @@ export default function StudentResultsApp() {
             />
           </div>
 
-          {authMode === "register" && (
+          {authMode === "register" && authRole === "lecturer" && (
             <div className="mb-3">
               <label className="text-xs uppercase tracking-wide block mb-1" style={{ color: MUTED }}>
                 Department (optional)
@@ -586,6 +635,37 @@ export default function StudentResultsApp() {
                 style={{ border: `1px solid ${LINE}`, color: INK }}
               />
             </div>
+          )}
+
+          {authMode === "register" && authRole === "admin" && (
+            <>
+              <div className="mb-3">
+                <label className="text-xs uppercase tracking-wide block mb-1" style={{ color: MUTED }}>
+                  Institution (optional)
+                </label>
+                <input
+                  value={authForm.institution}
+                  onChange={(e) => setAuthForm((f) => ({ ...f, institution: e.target.value }))}
+                  placeholder="e.g. Federal Polytechnic, Ede"
+                  className="w-full px-3 py-2 rounded-md outline-none text-sm"
+                  style={{ border: `1px solid ${LINE}`, color: INK }}
+                />
+              </div>
+              <div className="mb-3">
+                <label className="text-xs uppercase tracking-wide block mb-1" style={{ color: MUTED }}>
+                  Admin Setup Key
+                </label>
+                <input
+                  type="password"
+                  value={authForm.secret}
+                  onChange={(e) => setAuthForm((f) => ({ ...f, secret: e.target.value }))}
+                  placeholder="Enter the admin secret key"
+                  className="w-full px-3 py-2 rounded-md outline-none text-sm"
+                  style={{ border: `1px solid ${LINE}`, color: INK }}
+                />
+                <p className="text-xs mt-1" style={{ color: MUTED }}>Contact the system developer for this key.</p>
+              </div>
+            </>
           )}
 
           {authError && (
@@ -2224,6 +2304,304 @@ function SearchPage({ onSearch, results, loading }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ======================= ADMIN DASHBOARD =======================
+function AdminDashboard({ admin, token, onLogout }) {
+  const [page, setPage] = useState("overview");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [overview, setOverview]   = useState(null);
+  const [lecturers, setLecturers] = useState(null);
+  const [departments, setDepts]   = useState(null);
+  const [failedData, setFailed]   = useState(null);
+  const [loading, setLoading]     = useState(false);
+  const [expandedLecturer, setExpandedLecturer] = useState(null);
+  const [lecturerCourses, setLecturerCourses]   = useState({});
+  const [failedFilters, setFailedFilters] = useState({ department:"", level:"", session:"" });
+
+  async function adminFetch(path) {
+    return apiFetch(path, token);
+  }
+
+  useEffect(() => { loadPage("overview"); }, []);
+
+  async function loadPage(p) {
+    setPage(p);
+    setSidebarOpen(false);
+    setLoading(true);
+    try {
+      if (p === "overview"    && !overview)     setOverview(await adminFetch("/admin/overview"));
+      if (p === "lecturers"   && !lecturers)    setLecturers(await adminFetch("/admin/lecturers"));
+      if (p === "departments" && !departments)  setDepts(await adminFetch("/admin/departments"));
+      if (p === "failed")                        setFailed(await adminFetch(`/admin/failed-students?department=${failedFilters.department}&level=${failedFilters.level}&session=${failedFilters.session}`));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function toggleLecturer(id) {
+    if (expandedLecturer === id) { setExpandedLecturer(null); return; }
+    setExpandedLecturer(id);
+    if (!lecturerCourses[id]) {
+      const data = await adminFetch(`/admin/lecturers/${id}/courses`);
+      setLecturerCourses((prev) => ({ ...prev, [id]: data }));
+    }
+  }
+
+  async function applyFailedFilters() {
+    setLoading(true);
+    try {
+      const { department, level, session } = failedFilters;
+      setFailed(await adminFetch(`/admin/failed-students?department=${department}&level=${level}&session=${session}`));
+    } finally { setLoading(false); }
+  }
+
+  return (
+    <div className="min-h-screen w-full flex flex-col md:flex-row" style={{ background: PAPER, fontFamily: SANS }}>
+      <FontImport />
+
+      {/* Mobile top bar */}
+      <div className="md:hidden flex items-center justify-between px-4 py-3 sticky top-0 z-30" style={{ background: "#7C3AED" }}>
+        <button onClick={() => setSidebarOpen(true)} className="p-1"><Menu size={22} color="#FFF" /></button>
+        <span className="text-sm font-semibold" style={{ color: "#FFF" }}>Admin Dashboard</span>
+        <Shield size={18} color="#FFF" />
+      </div>
+
+      {sidebarOpen && <div className="md:hidden fixed inset-0 z-30" style={{ background: "rgba(0,0,0,0.4)" }} onClick={() => setSidebarOpen(false)} />}
+
+      {/* Admin Sidebar */}
+      <aside
+        className="rms-admin-sidebar w-60 flex-shrink-0 flex flex-col justify-between fixed md:static inset-y-0 left-0 z-40 transition-transform duration-200 md:translate-x-0"
+        style={{ background: "#4C1D95" }}
+      >
+        <style>{`@media(max-width:767px){.rms-admin-sidebar{transform:${sidebarOpen?"translateX(0)":"translateX(-100%)"}}}`}</style>
+        <div>
+          <div className="px-5 py-5 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.15)" }}>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: "#7C3AED" }}>
+                <Shield size={18} color="#FFF" />
+              </div>
+              <div>
+                <div className="text-sm font-medium truncate" style={{ color: "#FFF" }}>{admin.name}</div>
+                <div className="text-xs uppercase tracking-wide" style={{ color: "#A78BFA" }}>Administrator</div>
+              </div>
+            </div>
+            <button onClick={() => setSidebarOpen(false)} className="md:hidden p-1"><X size={16} color="#FFF" /></button>
+          </div>
+          <nav className="px-3 py-4 space-y-1">
+            {[
+              { id:"overview",     icon:<LayoutDashboard size={16}/>, label:"Overview" },
+              { id:"lecturers",    icon:<Users size={16}/>,           label:"Lecturers" },
+              { id:"departments",  icon:<BookOpen size={16}/>,        label:"Departments" },
+              { id:"failed",       icon:<AlertTriangle size={16}/>,   label:"Failed Students" },
+            ].map(({ id, icon, label }) => (
+              <button
+                key={id}
+                onClick={() => loadPage(id)}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors duration-150"
+                style={{ background: page === id ? "#7C3AED" : "transparent", color: page === id ? "#FFF" : "rgba(255,255,255,0.75)", fontWeight: page === id ? 600 : 400 }}
+              >
+                {icon}{label}
+              </button>
+            ))}
+          </nav>
+        </div>
+        <button onClick={onLogout} className="flex items-center gap-2 px-5 py-4 text-sm" style={{ color: "rgba(255,255,255,0.7)", borderTop: "1px solid rgba(255,255,255,0.15)" }}>
+          <LogOut size={15} /> Sign out
+        </button>
+      </aside>
+
+      {/* Admin Main */}
+      <main className="flex-1 p-4 md:p-8 overflow-x-auto w-full">
+        {loading && <p className="text-sm mb-4" style={{ color: MUTED }}>Loading…</p>}
+
+        {/* OVERVIEW */}
+        {page === "overview" && overview && (
+          <div>
+            <h1 className="text-2xl mb-1" style={{ color: INK, fontFamily: SERIF, fontWeight: 600 }}>Overview</h1>
+            <p className="text-sm mb-6" style={{ color: SLATE }}>Institution-wide performance summary.</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+              {[
+                { label:"Lecturers",   value: overview.lecturerCount },
+                { label:"Courses",     value: overview.courseCount },
+                { label:"Students",    value: overview.studentCount },
+                { label:"Pass Rate",   value: `${overview.passRate}%`, color: overview.passRate >= 50 ? PASS_C : FAIL_C },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="rounded-lg p-4" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+                  <div className="text-xs uppercase tracking-wide mb-1" style={{ color: MUTED }}>{label}</div>
+                  <div className="text-2xl font-semibold" style={{ color: color || INK, fontFamily: SERIF }}>{value}</div>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="rounded-lg p-5" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+                <h2 className="text-sm font-semibold mb-4" style={{ color: INK }}>Pass vs Fail (All Courses)</h2>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={[{ name:"All", Pass: overview.pass, Fail: overview.fail }]}>
+                    <CartesianGrid stroke={LINE} vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 12, fill: SLATE }} />
+                    <YAxis tick={{ fontSize: 12, fill: SLATE }} allowDecimals={false} />
+                    <Tooltip /><Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="Pass" fill={PASS_C} radius={[3,3,0,0]} />
+                    <Bar dataKey="Fail" fill={FAIL_C} radius={[3,3,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="rounded-lg p-5" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+                <h2 className="text-sm font-semibold mb-4" style={{ color: INK }}>Grade Distribution</h2>
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart>
+                    <Pie data={Object.entries(overview.gradeCounts).filter(([,v])=>v>0).map(([k,v])=>({name:k,value:v}))} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80} paddingAngle={2}>
+                      {Object.entries(overview.gradeCounts).filter(([,v])=>v>0).map(([k])=>(
+                        <Cell key={k} fill={GRADE_COLORS[k]} />
+                      ))}
+                    </Pie>
+                    <Legend wrapperStyle={{ fontSize: 12 }} /><Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* LECTURERS */}
+        {page === "lecturers" && lecturers && (
+          <div>
+            <h1 className="text-2xl mb-1" style={{ color: INK, fontFamily: SERIF, fontWeight: 600 }}>Lecturers</h1>
+            <p className="text-sm mb-6" style={{ color: SLATE }}>{lecturers.length} lecturer(s) registered.</p>
+            <div className="rounded-lg overflow-hidden" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+              <table className="w-full" style={{ borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>{["Name","Email","Department","Courses","Students","Passed","Failed","Pass Rate",""].map(h=>(
+                    <th key={h} className="text-left px-4 py-3 text-xs uppercase tracking-wide" style={{ color: MUTED, borderBottom:`1px solid ${LINE}` }}>{h}</th>
+                  ))}</tr>
+                </thead>
+                <tbody>
+                  {lecturers.map((l, i) => (
+                    <>
+                      <tr key={l._id} style={{ borderBottom:`1px solid ${LINE}`, background: i%2===0?"#FFF":PAPER }}>
+                        <td className="px-4 py-3 text-sm font-medium" style={{ color: INK }}>{l.name}</td>
+                        <td className="px-4 py-3 text-sm" style={{ color: SLATE }}>{l.email}</td>
+                        <td className="px-4 py-3 text-sm" style={{ color: SLATE }}>{l.department||"—"}</td>
+                        <td className="px-4 py-3 text-sm text-center" style={{ color: INK }}>{l.courseCount}</td>
+                        <td className="px-4 py-3 text-sm text-center" style={{ color: INK }}>{l.studentCount}</td>
+                        <td className="px-4 py-3 text-sm text-center font-medium" style={{ color: PASS_C }}>{l.pass}</td>
+                        <td className="px-4 py-3 text-sm text-center font-medium" style={{ color: FAIL_C }}>{l.fail}</td>
+                        <td className="px-4 py-3 text-sm font-semibold text-center" style={{ color: l.passRate>=50?PASS_C:FAIL_C }}>{l.passRate}%</td>
+                        <td className="px-4 py-3">
+                          <button onClick={() => toggleLecturer(l._id)} className="text-xs px-2 py-1 rounded" style={{ border:`1px solid ${LINE}`, color: SLATE }}>
+                            {expandedLecturer===l._id ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}
+                          </button>
+                        </td>
+                      </tr>
+                      {expandedLecturer===l._id && lecturerCourses[l._id] && (
+                        <tr key={`${l._id}-courses`} style={{ background: "#F5F3FF" }}>
+                          <td colSpan={9} className="px-6 py-3">
+                            <p className="text-xs font-semibold mb-2" style={{ color: "#4C1D95" }}>Courses by {l.name}</p>
+                            <div className="flex flex-wrap gap-2">
+                              {lecturerCourses[l._id].map((c) => (
+                                <div key={c._id} className="text-xs px-3 py-1.5 rounded-md" style={{ background: "#EDE9FE", color: "#4C1D95", border:"1px solid #DDD6FE" }}>
+                                  <span style={{ fontFamily: MONO, fontWeight:600 }}>{c.code}</span>
+                                  {" — "}{c.title}
+                                  {c.level && ` · ${c.level}`}
+                                  {" | "}<span style={{ color: PASS_C }}>{c.pass}P</span>
+                                  {" / "}<span style={{ color: FAIL_C }}>{c.fail}F</span>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* DEPARTMENTS */}
+        {page === "departments" && departments && (
+          <div>
+            <h1 className="text-2xl mb-1" style={{ color: INK, fontFamily: SERIF, fontWeight: 600 }}>Departmental Analysis</h1>
+            <p className="text-sm mb-6" style={{ color: SLATE }}>Performance summary across all departments.</p>
+            <div className="rounded-lg overflow-hidden" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+              <table className="w-full" style={{ borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>{["Department","Total Students","Passed","Failed","Pass Rate","Fail Rate"].map(h=>(
+                    <th key={h} className="text-left px-4 py-3 text-xs uppercase tracking-wide" style={{ color: MUTED, borderBottom:`1px solid ${LINE}` }}>{h}</th>
+                  ))}</tr>
+                </thead>
+                <tbody>
+                  {departments.map((d, i) => (
+                    <tr key={d.department} style={{ borderBottom:`1px solid ${LINE}`, background: i%2===0?"#FFF":PAPER }}>
+                      <td className="px-4 py-3 text-sm font-medium" style={{ color: INK }}>{d.department}</td>
+                      <td className="px-4 py-3 text-sm text-center" style={{ color: INK }}>{d.total}</td>
+                      <td className="px-4 py-3 text-sm text-center font-medium" style={{ color: PASS_C }}>{d.pass}</td>
+                      <td className="px-4 py-3 text-sm text-center font-medium" style={{ color: FAIL_C }}>{d.fail}</td>
+                      <td className="px-4 py-3 text-sm font-semibold text-center" style={{ color: d.passRate>=50?PASS_C:FAIL_C }}>{d.passRate}%</td>
+                      <td className="px-4 py-3 text-sm font-semibold text-center" style={{ color: FAIL_C }}>{d.failRate}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* FAILED STUDENTS */}
+        {page === "failed" && (
+          <div>
+            <h1 className="text-2xl mb-1" style={{ color: INK, fontFamily: SERIF, fontWeight: 600 }}>Failed Students</h1>
+            <p className="text-sm mb-5" style={{ color: SLATE }}>All students who failed across all lecturers and courses.</p>
+            <div className="flex flex-wrap gap-2 mb-5">
+              <input value={failedFilters.department} onChange={e=>setFailedFilters(f=>({...f,department:e.target.value}))} placeholder="Filter by department" className="px-3 py-2 rounded-md text-sm outline-none" style={{ border:`1px solid ${LINE}` }} />
+              <select value={failedFilters.level} onChange={e=>setFailedFilters(f=>({...f,level:e.target.value}))} className="px-3 py-2 rounded-md text-sm outline-none" style={{ border:`1px solid ${LINE}`, background:"#FFF", color: failedFilters.level?INK:MUTED }}>
+                <option value="">All levels</option>
+                {["ND I","ND II","HND I","HND II"].map(l=><option key={l}>{l}</option>)}
+              </select>
+              <input value={failedFilters.session} onChange={e=>setFailedFilters(f=>({...f,session:e.target.value}))} placeholder="Session e.g. 2024/2025" className="px-3 py-2 rounded-md text-sm outline-none" style={{ border:`1px solid ${LINE}` }} />
+              <button onClick={applyFailedFilters} className="px-4 py-2 rounded-md text-sm font-medium" style={{ background: INK, color: PAPER }}>Apply</button>
+            </div>
+            {failedData && (
+              <>
+                <p className="text-sm mb-3 font-medium" style={{ color: FAIL_C }}>{failedData.total} failed student record(s) found</p>
+                <div className="rounded-lg overflow-x-auto" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+                  <table className="w-full" style={{ borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr>{["Matric No","Name","Department","Programme","Course","Level","Session","Lecturer","Exam","CA","Total","Grade"].map(h=>(
+                        <th key={h} className="text-left px-3 py-2 text-xs uppercase tracking-wide whitespace-nowrap" style={{ color: MUTED, borderBottom:`1px solid ${LINE}` }}>{h}</th>
+                      ))}</tr>
+                    </thead>
+                    <tbody>
+                      {failedData.failedStudents.map((s, i) => (
+                        <tr key={i} style={{ borderBottom:`1px solid ${LINE}`, background: i%2===0?"#FFF":PAPER }}>
+                          <td className="px-3 py-2 text-sm font-medium whitespace-nowrap" style={{ color: INK, fontFamily: MONO }}>{s.matric||"—"}</td>
+                          <td className="px-3 py-2 text-sm whitespace-nowrap" style={{ color: INK }}>{s.name||"—"}</td>
+                          <td className="px-3 py-2 text-sm" style={{ color: SLATE }}>{s.department||"—"}</td>
+                          <td className="px-3 py-2 text-sm" style={{ color: SLATE }}>{s.programme||"—"}</td>
+                          <td className="px-3 py-2 text-sm whitespace-nowrap" style={{ color: INK, fontFamily: MONO }}>{s.course?.code}</td>
+                          <td className="px-3 py-2 text-sm whitespace-nowrap" style={{ color: SLATE }}>{s.course?.level||"—"}</td>
+                          <td className="px-3 py-2 text-sm whitespace-nowrap" style={{ color: SLATE }}>{s.course?.session||"—"}</td>
+                          <td className="px-3 py-2 text-sm whitespace-nowrap" style={{ color: SLATE }}>{s.lecturer?.name||"—"}</td>
+                          <td className="px-3 py-2 text-sm text-center" style={{ color: SLATE, fontFamily: MONO }}>{s.examTotal}</td>
+                          <td className="px-3 py-2 text-sm text-center" style={{ color: SLATE, fontFamily: MONO }}>{s.ca}</td>
+                          <td className="px-3 py-2 text-sm font-semibold text-center" style={{ color: FAIL_C, fontFamily: MONO }}>{s.grandTotal}</td>
+                          <td className="px-3 py-2 text-sm font-semibold" style={{ color: FAIL_C }}>{s.grade}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </main>
     </div>
   );
 }
