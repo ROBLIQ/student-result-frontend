@@ -37,6 +37,7 @@ import {
   ChevronDown,
   ChevronUp,
   BarChart2,
+  FileText,
 } from "lucide-react";
 
 // ---------- API ----------
@@ -230,6 +231,9 @@ export default function StudentResultsApp() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [levelData, setLevelData] = useState(null);
   const [levelLoading, setLevelLoading] = useState(false);
+  const [reportData, setReportData] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportOptions, setReportOptions] = useState(null);
 
   function askConfirm(message, onConfirm) {
     setConfirmState({ message, onConfirm });
@@ -483,6 +487,28 @@ export default function StudentResultsApp() {
     }
   }
 
+  async function loadReportOptions() {
+    try {
+      const data = await apiFetch("/analysis/report/options", token);
+      setReportOptions(data);
+    } catch (err) {
+      setGeneralError(err.message);
+    }
+  }
+
+  async function generateReport(params) {
+    setReportLoading(true);
+    try {
+      const qs = new URLSearchParams(params).toString();
+      const data = await apiFetch(`/analysis/report?${qs}`, token);
+      setReportData(data);
+    } catch (err) {
+      setGeneralError(err.message);
+    } finally {
+      setReportLoading(false);
+    }
+  }
+
   async function loadLevelData() {
     setLevelLoading(true);
     try {
@@ -510,7 +536,8 @@ export default function StudentResultsApp() {
     setPage(p);
     setSidebarOpen(false);
     if (p === "carryover" && !carryoverData) loadCarryover();
-    if (p === "level" && !levelData) loadLevelData();
+    if (p === "level"     && !levelData)     loadLevelData();
+    if (p === "reports"   && !reportOptions) loadReportOptions();
   }
 
   const selectedCourse = courses.find((c) => c._id === selectedCourseId) || null;
@@ -791,6 +818,7 @@ export default function StudentResultsApp() {
             <SidebarItem icon={<BookOpen size={16} />} label="Courses & Results" active={page === "manage"} onClick={() => goToPage("manage")} />
             <SidebarItem icon={<Search size={16} />} label="Search Students" active={page === "search"} onClick={() => goToPage("search")} />
             <SidebarItem icon={<BarChart2 size={16} />} label="Level Analysis" active={page === "level"} onClick={() => goToPage("level")} />
+            <SidebarItem icon={<FileText size={16} />} label="Reports" active={page === "reports"} onClick={() => goToPage("reports")} />
             <SidebarItem icon={<AlertTriangle size={16} />} label="Carry-Over" active={page === "carryover"} onClick={() => goToPage("carryover")} />
             <SidebarItem icon={<User size={16} />} label="Profile" active={page === "profile"} onClick={() => goToPage("profile")} />
           </nav>
@@ -821,6 +849,13 @@ export default function StudentResultsApp() {
           />
         ) : page === "profile" ? (
           <ProfilePage lecturer={lecturer} saveProfile={saveProfile} profileSaved={profileSaved} />
+        ) : page === "reports" ? (
+          <ReportsPage
+            options={reportOptions}
+            data={reportData}
+            loading={reportLoading}
+            onGenerate={generateReport}
+          />
         ) : page === "level" ? (
           <LevelAnalysisPage
             data={levelData}
@@ -2932,6 +2967,322 @@ function LevelAnalysisPage({ data, loading, onRefresh }) {
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+function ReportsPage({ options, data, loading, onGenerate }) {
+  const [reportType, setReportType] = useState("semester");
+  const [semester, setSemester]     = useState("");
+  const [session, setSession]       = useState("");
+  const [department, setDepartment] = useState("");
+
+  const REPORT_TYPES = [
+    { id: "semester",   label: "Semester Report",    desc: "All courses in a specific semester and session" },
+    { id: "session",    label: "Session (Yearly)",   desc: "All courses in a full academic session/year" },
+    { id: "department", label: "Departmental",       desc: "All students from a specific department across courses" },
+  ];
+
+  function handleGenerate(e) {
+    e.preventDefault();
+    onGenerate({ type: reportType, semester, session, department });
+  }
+
+  function exportReportExcel() {
+    if (!data || !data.summary) return;
+    const wb   = XLSX.utils.book_new();
+    const { summary, courses, filters, type } = data;
+    const title = type === "semester" ? `${filters.semester} — ${filters.session}`
+                : type === "session"  ? `Session ${filters.session}`
+                : `${filters.department} Department`;
+
+    // Summary sheet
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      [`REPORT: ${title.toUpperCase()}`],
+      [`Generated: ${new Date().toLocaleDateString()}`],
+      [],
+      ["Total Courses", summary.totalCourses],
+      ["Total Registrations", summary.totalStudents],
+      ["Total Passed", summary.totalPassed],
+      ["Total Failed", summary.totalFailed],
+      ["Pass Rate", `${summary.passRate}%`],
+      ["Fail Rate", `${summary.failRate}%`],
+      ["Carry-Over Students", summary.carryoverCount],
+      [],
+      ["GRADE DISTRIBUTION"],
+      ["Grade","Count"],
+      ...Object.entries(summary.gradeCounts).map(([g,c])=>[g,c]),
+      [],
+      ["COURSE SUMMARY"],
+      ["Code","Title","Level","Semester","Session","Students","Passed","Failed","Pass Rate"],
+      ...courses.map((c)=>[c.code,c.title,c.level||"—",c.semester||"—",c.session||"—",c.totalStudents,c.passed,c.failed,`${c.passRate}%`]),
+    ]), "Summary");
+
+    // Per-course sheets with failed students
+    courses.forEach((c) => {
+      if (c.failedStudents?.length) {
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+          [`${c.code} — Failed Students`],
+          [],
+          ["Matric No","Name","Department","Programme","Exam Total","C.A","Grand Total","Grade"],
+          ...c.failedStudents.map((s)=>[s.matric,s.name,s.department,s.programme,s.examTotal,s.ca,s.grandTotal,s.grade]),
+        ]), c.code.slice(0,31));
+      }
+    });
+
+    XLSX.writeFile(wb, `Report_${title.replace(/[^a-z0-9]/gi,"_")}_${new Date().toISOString().split("T")[0]}.xlsx`);
+  }
+
+  function exportReportPDF() {
+    if (!data || !data.summary) return;
+    const { summary, courses, filters, type } = data;
+    const title = type === "semester" ? `${filters.semester} — ${filters.session}`
+                : type === "session"  ? `Session ${filters.session}`
+                : `${filters.department} Department`;
+
+    const doc   = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+
+    // Header
+    doc.setFillColor(22, 36, 62);
+    doc.rect(0, 0, pageW, 28, "F");
+    doc.setFontSize(14);
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.text(`${REPORT_TYPES.find(r=>r.id===type)?.label.toUpperCase()} — ${title.toUpperCase()}`, 14, 12);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(200, 151, 61);
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 22);
+
+    // Summary table
+    let y = 34;
+    doc.setFontSize(11);
+    doc.setTextColor(22, 36, 62);
+    doc.setFont("helvetica", "bold");
+    doc.text("Overall Summary", 14, y);
+    y += 3;
+
+    autoTable(doc, {
+      startY: y,
+      head: [["Total Courses","Total Registrations","Passed","Failed","Pass Rate","Fail Rate","Carry-Over"]],
+      body: [[summary.totalCourses, summary.totalStudents, summary.totalPassed, summary.totalFailed,
+              `${summary.passRate}%`, `${summary.failRate}%`, summary.carryoverCount]],
+      theme: "grid",
+      headStyles: { fillColor:[22,36,62], textColor:255, fontSize:9, fontStyle:"bold" },
+      bodyStyles: { fontSize:9, halign:"center" },
+      columnStyles: {
+        4: { textColor:[47,107,79], fontStyle:"bold" },
+        5: { textColor:[140,47,57], fontStyle:"bold" },
+        6: { textColor:[140,47,57] },
+      },
+      margin: { left:14, right:14 },
+    });
+
+    // Grade distribution
+    y = doc.lastAutoTable.finalY + 8;
+    doc.setFontSize(10);
+    doc.setFont("helvetica","bold");
+    doc.text("Grade Distribution", 14, y);
+    y += 3;
+    autoTable(doc, {
+      startY: y,
+      head: [["Grade","A","B","C","D","E","F"]],
+      body: [["Count", ...["A","B","C","D","E","F"].map(g=>summary.gradeCounts[g]||0)]],
+      theme: "grid",
+      headStyles: { fillColor:[22,36,62], textColor:255, fontSize:9 },
+      bodyStyles: { fontSize:9, halign:"center" },
+      columnStyles: { 6:{ textColor:[140,47,57], fontStyle:"bold" } },
+      margin: { left:14, right:14 },
+    });
+
+    // Course breakdown
+    y = doc.lastAutoTable.finalY + 8;
+    doc.setFontSize(11);
+    doc.setFont("helvetica","bold");
+    doc.text("Course Breakdown", 14, y);
+    y += 3;
+    autoTable(doc, {
+      startY: y,
+      head: [["#","Code","Title","Level","Semester","Session","Students","Passed","Failed","Pass Rate"]],
+      body: courses.map((c,i)=>[i+1,c.code,c.title,c.level||"—",c.semester||"—",c.session||"—",c.totalStudents,c.passed,c.failed,`${c.passRate}%`]),
+      theme: "striped",
+      headStyles: { fillColor:[22,36,62], textColor:255, fontSize:8, fontStyle:"bold" },
+      bodyStyles: { fontSize:8 },
+      alternateRowStyles: { fillColor:[250,248,243] },
+      columnStyles: { 9:{ textColor:[47,107,79], fontStyle:"bold" } },
+      margin: { left:14, right:14 },
+    });
+
+    // Failed students pages per course
+    courses.filter(c=>c.failedStudents?.length>0).forEach((c) => {
+      doc.addPage();
+      doc.setFillColor(140,47,57);
+      doc.rect(0,0,pageW,20,"F");
+      doc.setFontSize(12);
+      doc.setTextColor(255,255,255);
+      doc.setFont("helvetica","bold");
+      doc.text(`Failed Students — ${c.code}  (${c.failedStudents.length})`, 14, 12);
+      autoTable(doc, {
+        startY: 24,
+        head: [["#","Matric No","Name","Department","Programme","Exam /70","CA /30","Total /100","Grade"]],
+        body: c.failedStudents.map((s,i)=>[i+1,s.matric||"—",s.name||"—",s.department||"—",s.programme||"—",s.examTotal,s.ca,s.grandTotal,s.grade]),
+        theme: "grid",
+        headStyles: { fillColor:[140,47,57], textColor:255, fontSize:8.5, fontStyle:"bold" },
+        bodyStyles: { fontSize:8.5 },
+        margin: { left:14, right:14 },
+      });
+    });
+
+    doc.save(`Report_${title.replace(/[^a-z0-9]/gi,"_")}_${new Date().toISOString().split("T")[0]}.pdf`);
+  }
+
+  return (
+    <div>
+      <h1 className="text-2xl mb-1" style={{ color: INK, fontFamily: SERIF, fontWeight: 600 }}>Reports</h1>
+      <p className="text-sm mb-6" style={{ color: SLATE }}>Generate semester, session, or departmental reports and export them to PDF or Excel.</p>
+
+      {/* Report type selector + filters */}
+      <form onSubmit={handleGenerate} className="rounded-lg p-5 mb-6" style={{ background:"#FFF", border:`1px solid ${LINE}` }}>
+        <h2 className="text-sm font-semibold mb-4" style={{ color: INK }}>Configure Report</h2>
+
+        {/* Type tabs */}
+        <div className="flex flex-wrap gap-2 mb-5">
+          {REPORT_TYPES.map((rt) => (
+            <button
+              key={rt.id}
+              type="button"
+              onClick={() => setReportType(rt.id)}
+              className="px-4 py-2 rounded-md text-sm font-medium transition-colors duration-150"
+              style={{
+                background: reportType===rt.id ? INK : "#FFF",
+                color:      reportType===rt.id ? PAPER : SLATE,
+                border:     `1px solid ${reportType===rt.id ? INK : LINE}`,
+              }}
+            >
+              {rt.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs mb-4" style={{ color: MUTED }}>
+          {REPORT_TYPES.find(r=>r.id===reportType)?.desc}
+        </p>
+
+        {/* Filters */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+          {(reportType === "semester" || reportType === "session") && (
+            <div>
+              <label className="text-xs uppercase tracking-wide block mb-1" style={{ color: MUTED }}>Session</label>
+              <select value={session} onChange={e=>setSession(e.target.value)} className="w-full px-3 py-2 rounded-md text-sm outline-none" style={{ border:`1px solid ${LINE}`, background:"#FFF", color: session?INK:MUTED }}>
+                <option value="">All sessions</option>
+                {options?.sessions?.map(s=><option key={s}>{s}</option>)}
+              </select>
+            </div>
+          )}
+          {reportType === "semester" && (
+            <div>
+              <label className="text-xs uppercase tracking-wide block mb-1" style={{ color: MUTED }}>Semester</label>
+              <select value={semester} onChange={e=>setSemester(e.target.value)} className="w-full px-3 py-2 rounded-md text-sm outline-none" style={{ border:`1px solid ${LINE}`, background:"#FFF", color: semester?INK:MUTED }}>
+                <option value="">All semesters</option>
+                {options?.semesters?.map(s=><option key={s}>{s}</option>)}
+              </select>
+            </div>
+          )}
+          {reportType === "department" && (
+            <div>
+              <label className="text-xs uppercase tracking-wide block mb-1" style={{ color: MUTED }}>Department</label>
+              <select value={department} onChange={e=>setDepartment(e.target.value)} className="w-full px-3 py-2 rounded-md text-sm outline-none" style={{ border:`1px solid ${LINE}`, background:"#FFF", color: department?INK:MUTED }}>
+                <option value="">All departments</option>
+                {options?.departments?.map(d=><option key={d}>{d}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+        <button type="submit" className="px-5 py-2 rounded-md text-sm font-medium" style={{ background: INK, color: PAPER }}>
+          Generate Report
+        </button>
+      </form>
+
+      {loading && <p className="text-sm" style={{ color: MUTED }}>Generating report…</p>}
+
+      {!loading && data && !data.summary && (
+        <div className="rounded-lg p-8 text-center" style={{ background:"#FFF", border:`1px solid ${LINE}` }}>
+          <p className="text-sm font-medium" style={{ color: INK }}>No data found for the selected filters</p>
+          <p className="text-sm mt-1" style={{ color: MUTED }}>Try adjusting the filters or adding more courses/students.</p>
+        </div>
+      )}
+
+      {!loading && data?.summary && (
+        <div>
+          {/* Export buttons */}
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <h2 className="text-base font-semibold" style={{ color: INK, fontFamily: SERIF }}>
+              {REPORT_TYPES.find(r=>r.id===data.type)?.label}
+              {data.filters.semester && ` — ${data.filters.semester}`}
+              {data.filters.session  && ` — ${data.filters.session}`}
+              {data.filters.department && ` — ${data.filters.department}`}
+            </h2>
+            <div className="flex gap-2">
+              <button onClick={exportReportExcel} className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium" style={{ background: PASS_C, color:"#FFF" }}>
+                <Download size={14} /> Export Excel
+              </button>
+              <button onClick={exportReportPDF} className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium" style={{ background: FAIL_C, color:"#FFF" }}>
+                <Download size={14} /> Export PDF
+              </button>
+            </div>
+          </div>
+
+          {/* Summary stat cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            {[
+              { label:"Courses",      value: data.summary.totalCourses },
+              { label:"Registrations",value: data.summary.totalStudents },
+              { label:"Passed",       value: data.summary.totalPassed,  color: PASS_C },
+              { label:"Failed",       value: data.summary.totalFailed,  color: FAIL_C },
+              { label:"Pass Rate",    value: `${data.summary.passRate}%`, color: data.summary.passRate>=50?PASS_C:FAIL_C },
+              { label:"Fail Rate",    value: `${data.summary.failRate}%`, color: FAIL_C },
+              { label:"Carry-Over",   value: data.summary.carryoverCount, color: FAIL_C },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="rounded-lg p-3" style={{ background:"#FFF", border:`1px solid ${LINE}` }}>
+                <div className="text-xs uppercase tracking-wide mb-1" style={{ color: MUTED }}>{label}</div>
+                <div className="text-xl font-semibold" style={{ color: color||INK, fontFamily: SERIF }}>{value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Course breakdown table */}
+          <div className="rounded-lg mb-6" style={{ background:"#FFF", border:`1px solid ${LINE}` }}>
+            <div className="px-5 py-3" style={{ borderBottom:`1px solid ${LINE}` }}>
+              <h3 className="text-sm font-semibold" style={{ color: INK }}>Course Breakdown</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full" style={{ borderCollapse:"collapse" }}>
+                <thead>
+                  <tr>{["#","Code","Title","Level","Semester","Session","Students","Passed","Failed","Pass Rate"].map(h=>(
+                    <th key={h} className="text-left px-3 py-2 text-xs uppercase tracking-wide whitespace-nowrap" style={{ color:MUTED, borderBottom:`1px solid ${LINE}` }}>{h}</th>
+                  ))}</tr>
+                </thead>
+                <tbody>
+                  {data.courses.map((c,i)=>(
+                    <tr key={c.code} style={{ borderBottom:`1px solid ${LINE}`, background: i%2===0?"#FFF":PAPER }}>
+                      <td className="px-3 py-2 text-sm" style={{ color:MUTED }}>{i+1}</td>
+                      <td className="px-3 py-2 text-sm font-semibold" style={{ color:GOLD, fontFamily:MONO }}>{c.code}</td>
+                      <td className="px-3 py-2 text-sm" style={{ color:INK }}>{c.title}</td>
+                      <td className="px-3 py-2 text-sm" style={{ color:SLATE }}>{c.level||"—"}</td>
+                      <td className="px-3 py-2 text-sm" style={{ color:SLATE }}>{c.semester||"—"}</td>
+                      <td className="px-3 py-2 text-sm" style={{ color:SLATE }}>{c.session||"—"}</td>
+                      <td className="px-3 py-2 text-sm text-center" style={{ color:INK }}>{c.totalStudents}</td>
+                      <td className="px-3 py-2 text-sm text-center font-medium" style={{ color:PASS_C }}>{c.passed}</td>
+                      <td className="px-3 py-2 text-sm text-center font-medium" style={{ color:FAIL_C }}>{c.failed}</td>
+                      <td className="px-3 py-2 text-sm font-semibold text-center" style={{ color:c.passRate>=50?PASS_C:FAIL_C }}>{c.passRate}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
