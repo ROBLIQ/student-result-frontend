@@ -36,6 +36,7 @@ import {
   Users,
   ChevronDown,
   ChevronUp,
+  BarChart2,
 } from "lucide-react";
 
 // ---------- API ----------
@@ -227,6 +228,8 @@ export default function StudentResultsApp() {
   const [carryoverLoading, setCarryoverLoading] = useState(false);
   const [searchResults, setSearchResults] = useState(null);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [levelData, setLevelData] = useState(null);
+  const [levelLoading, setLevelLoading] = useState(false);
 
   function askConfirm(message, onConfirm) {
     setConfirmState({ message, onConfirm });
@@ -480,6 +483,18 @@ export default function StudentResultsApp() {
     }
   }
 
+  async function loadLevelData() {
+    setLevelLoading(true);
+    try {
+      const data = await apiFetch("/analysis/level-summary", token);
+      setLevelData(data);
+    } catch (err) {
+      setGeneralError(err.message);
+    } finally {
+      setLevelLoading(false);
+    }
+  }
+
   async function loadCarryover() {
     try {
       const data = await apiFetch("/analysis/carryover", token);
@@ -495,6 +510,7 @@ export default function StudentResultsApp() {
     setPage(p);
     setSidebarOpen(false);
     if (p === "carryover" && !carryoverData) loadCarryover();
+    if (p === "level" && !levelData) loadLevelData();
   }
 
   const selectedCourse = courses.find((c) => c._id === selectedCourseId) || null;
@@ -774,6 +790,7 @@ export default function StudentResultsApp() {
             <SidebarItem icon={<LayoutDashboard size={16} />} label="Overview" active={page === "overview"} onClick={() => goToPage("overview")} />
             <SidebarItem icon={<BookOpen size={16} />} label="Courses & Results" active={page === "manage"} onClick={() => goToPage("manage")} />
             <SidebarItem icon={<Search size={16} />} label="Search Students" active={page === "search"} onClick={() => goToPage("search")} />
+            <SidebarItem icon={<BarChart2 size={16} />} label="Level Analysis" active={page === "level"} onClick={() => goToPage("level")} />
             <SidebarItem icon={<AlertTriangle size={16} />} label="Carry-Over" active={page === "carryover"} onClick={() => goToPage("carryover")} />
             <SidebarItem icon={<User size={16} />} label="Profile" active={page === "profile"} onClick={() => goToPage("profile")} />
           </nav>
@@ -804,6 +821,12 @@ export default function StudentResultsApp() {
           />
         ) : page === "profile" ? (
           <ProfilePage lecturer={lecturer} saveProfile={saveProfile} profileSaved={profileSaved} />
+        ) : page === "level" ? (
+          <LevelAnalysisPage
+            data={levelData}
+            loading={levelLoading}
+            onRefresh={loadLevelData}
+          />
         ) : page === "search" ? (
           <SearchPage
             onSearch={globalSearch}
@@ -2651,6 +2674,265 @@ function AdminDashboard({ admin, token, onLogout }) {
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+function LevelAnalysisPage({ data, loading, onRefresh }) {
+  const byLevel = data?.byLevel || {};
+  const levels  = Object.keys(byLevel);
+  const [activeLevel, setActiveLevel] = useState(null);
+
+  // Set first level as active once data loads
+  useEffect(() => {
+    if (levels.length && !activeLevel) setActiveLevel(levels[0]);
+  }, [levels]);
+
+  const current = activeLevel ? byLevel[activeLevel] : null;
+
+  // Chart data — one bar per level
+  const barData = levels.map((lvl) => ({
+    name: lvl,
+    Pass: byLevel[lvl].passed,
+    Fail: byLevel[lvl].failed,
+    "Carry-Over": byLevel[lvl].carryoverCount,
+  }));
+
+  function exportLevelExcel() {
+    const wb = XLSX.utils.book_new();
+
+    // Summary sheet
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ["LEVEL-BASED GENERAL COURSE ANALYSIS"],
+      [`Generated: ${new Date().toLocaleDateString()}`],
+      [],
+      ["Level","Total Courses","Total Registrations","Passed","Failed","Pass Rate","Fail Rate","Carry-Over Students"],
+      ...levels.map((lvl) => {
+        const d = byLevel[lvl];
+        return [lvl, d.totalCourses, d.totalRegistrations, d.passed, d.failed, `${d.passRate}%`, `${d.failRate}%`, d.carryoverCount];
+      }),
+    ]), "Summary");
+
+    // One sheet per level
+    levels.forEach((lvl) => {
+      const d = byLevel[lvl];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        [`${lvl} — Course Breakdown`],
+        [],
+        ["Course Code","Course Title","Semester","Session","Total Students","Passed","Failed","Pass Rate"],
+        ...d.courses.map((c) => [c.code, c.title, c.semester||"—", c.session||"—", c.students, c.passed, c.failed, `${c.passRate}%`]),
+      ]), lvl.replace("/","-"));
+    });
+
+    XLSX.writeFile(wb, `Level_Analysis_${new Date().toISOString().split("T")[0]}.xlsx`);
+  }
+
+  function exportLevelPDF() {
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+
+    doc.setFillColor(22, 36, 62);
+    doc.rect(0, 0, pageW, 26, "F");
+    doc.setFontSize(15);
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.text("Level-Based General Course Analysis", 14, 11);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(200, 151, 61);
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 20);
+
+    // Summary table
+    let y = 32;
+    doc.setFontSize(11);
+    doc.setTextColor(22, 36, 62);
+    doc.setFont("helvetica", "bold");
+    doc.text("Summary by Level", 14, y);
+    y += 3;
+
+    autoTable(doc, {
+      startY: y,
+      head: [["Level","Courses","Registrations","Passed","Failed","Pass Rate","Fail Rate","Carry-Over"]],
+      body: levels.map((lvl) => {
+        const d = byLevel[lvl];
+        return [lvl, d.totalCourses, d.totalRegistrations, d.passed, d.failed, `${d.passRate}%`, `${d.failRate}%`, d.carryoverCount];
+      }),
+      theme: "grid",
+      headStyles: { fillColor: [22, 36, 62], textColor: 255, fontSize: 9, fontStyle: "bold" },
+      bodyStyles: { fontSize: 9 },
+      columnStyles: {
+        5: { textColor: [47, 107, 79], fontStyle: "bold" },
+        6: { textColor: [140, 47, 57], fontStyle: "bold" },
+        7: { textColor: [140, 47, 57] },
+      },
+      margin: { left: 14, right: 14 },
+    });
+
+    // Per-level pages
+    levels.forEach((lvl) => {
+      doc.addPage();
+      const d = byLevel[lvl];
+      doc.setFillColor(22, 36, 62);
+      doc.rect(0, 0, pageW, 22, "F");
+      doc.setFontSize(13);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.text(`${lvl} — Course Breakdown`, 14, 10);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(200, 151, 61);
+      doc.text(`Pass Rate: ${d.passRate}%   |   Carry-Over Students: ${d.carryoverCount}`, 14, 18);
+
+      autoTable(doc, {
+        startY: 26,
+        head: [["Course Code","Course Title","Semester","Session","Total Students","Passed","Failed","Pass Rate"]],
+        body: d.courses.map((c) => [c.code, c.title, c.semester||"—", c.session||"—", c.students, c.passed, c.failed, `${c.passRate}%`]),
+        theme: "striped",
+        headStyles: { fillColor: [22, 36, 62], textColor: 255, fontSize: 9, fontStyle: "bold" },
+        bodyStyles: { fontSize: 9 },
+        columnStyles: { 7: { textColor: [47, 107, 79], fontStyle: "bold" } },
+        margin: { left: 14, right: 14 },
+      });
+    });
+
+    doc.save(`Level_Analysis_${new Date().toISOString().split("T")[0]}.pdf`);
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div>
+          <h1 className="text-2xl mb-1" style={{ color: INK, fontFamily: SERIF, fontWeight: 600 }}>
+            Level Analysis
+          </h1>
+          <p className="text-sm" style={{ color: SLATE }}>
+            Performance summary for each level across all your courses.
+          </p>
+        </div>
+        {!loading && data && (
+          <div className="flex gap-2">
+            <button onClick={exportLevelExcel} className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium" style={{ background: PASS_C, color: "#FFF" }}>
+              <Download size={14} /> Export Excel
+            </button>
+            <button onClick={exportLevelPDF} className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium" style={{ background: FAIL_C, color: "#FFF" }}>
+              <Download size={14} /> Export PDF
+            </button>
+            <button onClick={onRefresh} className="px-3 py-1.5 rounded-md text-sm" style={{ border: `1px solid ${LINE}`, color: SLATE }}>
+              Refresh
+            </button>
+          </div>
+        )}
+      </div>
+
+      {loading ? (
+        <p className="text-sm" style={{ color: MUTED }}>Loading level analysis…</p>
+      ) : !data || levels.length === 0 ? (
+        <div className="rounded-lg p-10 text-center" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+          <p className="text-sm font-medium" style={{ color: INK }}>No level data yet</p>
+          <p className="text-sm mt-1" style={{ color: MUTED }}>Add courses with a Level set and upload student results to see analysis here.</p>
+        </div>
+      ) : (
+        <>
+          {/* Summary bar chart */}
+          <div className="rounded-lg p-5 mb-6" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+            <h2 className="text-sm font-semibold mb-4" style={{ color: INK }}>Pass / Fail / Carry-Over by Level</h2>
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={barData}>
+                <CartesianGrid stroke={LINE} vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 12, fill: SLATE }} />
+                <YAxis tick={{ fontSize: 12, fill: SLATE }} allowDecimals={false} />
+                <Tooltip />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="Pass" fill={PASS_C} radius={[3,3,0,0]} />
+                <Bar dataKey="Fail" fill={FAIL_C} radius={[3,3,0,0]} />
+                <Bar dataKey="Carry-Over" fill={GOLD} radius={[3,3,0,0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Level summary cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            {levels.map((lvl) => {
+              const d = byLevel[lvl];
+              const isActive = activeLevel === lvl;
+              return (
+                <button
+                  key={lvl}
+                  onClick={() => setActiveLevel(lvl)}
+                  className="rounded-lg p-4 text-left transition-all duration-150"
+                  style={{
+                    background: isActive ? INK : "#FFF",
+                    border: `2px solid ${isActive ? INK : LINE}`,
+                  }}
+                >
+                  <div className="text-xs uppercase tracking-wide mb-1" style={{ color: isActive ? "rgba(255,255,255,0.6)" : MUTED }}>{lvl}</div>
+                  <div className="text-xl font-semibold mb-1" style={{ color: isActive ? "#FFF" : INK, fontFamily: SERIF }}>{d.totalRegistrations}</div>
+                  <div className="text-xs" style={{ color: isActive ? GOLD : SLATE }}>registrations</div>
+                  <div className="flex gap-2 mt-2 text-xs">
+                    <span style={{ color: isActive ? "#86EFAC" : PASS_C }}>✓ {d.passRate}% pass</span>
+                    <span style={{ color: isActive ? "#FCA5A5" : FAIL_C }}>✗ {d.failRate}% fail</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Detail for selected level */}
+          {current && (
+            <div className="rounded-lg p-5" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+              <div className="flex flex-wrap items-center gap-4 mb-5">
+                <h2 className="text-base font-semibold" style={{ color: INK, fontFamily: SERIF }}>{activeLevel} — Detailed Breakdown</h2>
+                <div className="flex flex-wrap gap-3 text-sm">
+                  {[
+                    { label: "Courses",        value: current.totalCourses },
+                    { label: "Registrations",  value: current.totalRegistrations },
+                    { label: "Passed",         value: current.passed,   color: PASS_C },
+                    { label: "Failed",         value: current.failed,   color: FAIL_C },
+                    { label: "Pass Rate",      value: `${current.passRate}%`, color: current.passRate>=50?PASS_C:FAIL_C },
+                    { label: "Carry-Over",     value: current.carryoverCount, color: FAIL_C },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className="px-3 py-1.5 rounded-md text-center" style={{ background: PAPER, border: `1px solid ${LINE}` }}>
+                      <div className="text-xs" style={{ color: MUTED }}>{label}</div>
+                      <div className="font-semibold" style={{ color: color || INK }}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full" style={{ borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      {["#","Course Code","Course Title","Semester","Session","Students","Passed","Failed","Pass Rate"].map((h) => (
+                        <th key={h} className="text-left px-3 py-2 text-xs uppercase tracking-wide" style={{ color: MUTED, borderBottom: `1px solid ${LINE}`, fontFamily: SANS }}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {current.courses.map((c, i) => (
+                      <tr key={c.code} style={{ borderBottom: `1px solid ${LINE}`, background: i%2===0?"#FFF":PAPER }}>
+                        <td className="px-3 py-2 text-sm" style={{ color: MUTED }}>{i+1}</td>
+                        <td className="px-3 py-2 text-sm font-semibold" style={{ color: GOLD, fontFamily: MONO }}>{c.code}</td>
+                        <td className="px-3 py-2 text-sm" style={{ color: INK }}>{c.title}</td>
+                        <td className="px-3 py-2 text-sm" style={{ color: SLATE }}>{c.semester||"—"}</td>
+                        <td className="px-3 py-2 text-sm" style={{ color: SLATE }}>{c.session||"—"}</td>
+                        <td className="px-3 py-2 text-sm text-center" style={{ color: INK }}>{c.students}</td>
+                        <td className="px-3 py-2 text-sm text-center font-medium" style={{ color: PASS_C }}>{c.passed}</td>
+                        <td className="px-3 py-2 text-sm text-center font-medium" style={{ color: FAIL_C }}>{c.failed}</td>
+                        <td className="px-3 py-2 text-sm font-semibold text-center" style={{ color: c.passRate>=50?PASS_C:FAIL_C }}>
+                          {c.passRate}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
