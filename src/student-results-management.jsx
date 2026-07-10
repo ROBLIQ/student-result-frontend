@@ -2513,7 +2513,7 @@ function AdminDashboard({ admin, token, onLogout }) {
       </aside>
 
       {/* Admin Main */}
-      <main className="flex-1 p-4 md:p-8 overflow-x-auto w-full">
+      <main className="flex-1 p-4 md:p-6 overflow-x-auto w-full min-w-0">
         {loading && <p className="text-sm mb-4" style={{ color: MUTED }}>Loading…</p>}
 
         {/* OVERVIEW */}
@@ -2521,7 +2521,7 @@ function AdminDashboard({ admin, token, onLogout }) {
           <div>
             <h1 className="text-2xl mb-1" style={{ color: INK, fontFamily: SERIF, fontWeight: 600 }}>Overview</h1>
             <p className="text-sm mb-6" style={{ color: SLATE }}>Institution-wide performance summary.</p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
               {[
                 { label:"Lecturers",   value: overview.lecturerCount },
                 { label:"Courses",     value: overview.courseCount },
@@ -2570,8 +2570,8 @@ function AdminDashboard({ admin, token, onLogout }) {
           <div>
             <h1 className="text-2xl mb-1" style={{ color: INK, fontFamily: SERIF, fontWeight: 600 }}>Lecturers</h1>
             <p className="text-sm mb-6" style={{ color: SLATE }}>{lecturers.length} lecturer(s) registered.</p>
-            <div className="rounded-lg overflow-hidden" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
-              <table className="w-full" style={{ borderCollapse: "collapse" }}>
+            <div className="rounded-lg overflow-x-auto" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+              <table className="w-full" style={{ borderCollapse: "collapse", minWidth: "700px" }}>
                 <thead>
                   <tr>{["Name","Email","Department","Courses","Students","Passed","Failed","Pass Rate","",""].map(h=>(
                     <th key={h} className="text-left px-4 py-3 text-xs uppercase tracking-wide" style={{ color: MUTED, borderBottom:`1px solid ${LINE}` }}>{h}</th>
@@ -2636,8 +2636,8 @@ function AdminDashboard({ admin, token, onLogout }) {
           <div>
             <h1 className="text-2xl mb-1" style={{ color: INK, fontFamily: SERIF, fontWeight: 600 }}>Departmental Analysis</h1>
             <p className="text-sm mb-6" style={{ color: SLATE }}>Performance summary across all departments.</p>
-            <div className="rounded-lg overflow-hidden" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
-              <table className="w-full" style={{ borderCollapse: "collapse" }}>
+            <div className="rounded-lg overflow-x-auto" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+              <table className="w-full" style={{ borderCollapse: "collapse", minWidth: "500px" }}>
                 <thead>
                   <tr>{["Department","Total Students","Passed","Failed","Pass Rate","Fail Rate"].map(h=>(
                     <th key={h} className="text-left px-4 py-3 text-xs uppercase tracking-wide" style={{ color: MUTED, borderBottom:`1px solid ${LINE}` }}>{h}</th>
@@ -2665,20 +2665,39 @@ function AdminDashboard({ admin, token, onLogout }) {
           <div>
             <h1 className="text-2xl mb-1" style={{ color: INK, fontFamily: SERIF, fontWeight: 600 }}>Failed Students</h1>
             <p className="text-sm mb-5" style={{ color: SLATE }}>All students who failed across all lecturers and courses.</p>
-            <div className="flex flex-wrap gap-2 mb-5">
-              <input value={failedFilters.department} onChange={e=>setFailedFilters(f=>({...f,department:e.target.value}))} placeholder="Filter by department" className="px-3 py-2 rounded-md text-sm outline-none" style={{ border:`1px solid ${LINE}` }} />
-              <select value={failedFilters.level} onChange={e=>setFailedFilters(f=>({...f,level:e.target.value}))} className="px-3 py-2 rounded-md text-sm outline-none" style={{ border:`1px solid ${LINE}`, background:"#FFF", color: failedFilters.level?INK:MUTED }}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mb-5">
+              <input
+                value={failedFilters.department}
+                onChange={e=>setFailedFilters(f=>({...f,department:e.target.value}))}
+                placeholder="Filter by department"
+                className="px-3 py-2 rounded-md text-sm outline-none w-full"
+                style={{ border:`1px solid ${LINE}` }}
+              />
+              <select
+                value={failedFilters.level}
+                onChange={e=>setFailedFilters(f=>({...f,level:e.target.value}))}
+                className="px-3 py-2 rounded-md text-sm outline-none w-full"
+                style={{ border:`1px solid ${LINE}`, background:"#FFF", color: failedFilters.level?INK:MUTED }}
+              >
                 <option value="">All levels</option>
                 {["ND I","ND II","HND I","HND II"].map(l=><option key={l}>{l}</option>)}
               </select>
-              <input value={failedFilters.session} onChange={e=>setFailedFilters(f=>({...f,session:e.target.value}))} placeholder="Session e.g. 2024/2025" className="px-3 py-2 rounded-md text-sm outline-none" style={{ border:`1px solid ${LINE}` }} />
-              <button onClick={applyFailedFilters} className="px-4 py-2 rounded-md text-sm font-medium" style={{ background: INK, color: PAPER }}>Apply</button>
+              <input
+                value={failedFilters.session}
+                onChange={e=>setFailedFilters(f=>({...f,session:e.target.value}))}
+                placeholder="Session e.g. 2024/2025"
+                className="px-3 py-2 rounded-md text-sm outline-none w-full"
+                style={{ border:`1px solid ${LINE}` }}
+              />
+              <button onClick={applyFailedFilters} className="px-4 py-2 rounded-md text-sm font-medium w-full" style={{ background: INK, color: PAPER }}>
+                Apply Filters
+              </button>
             </div>
             {failedData && (
               <>
                 <p className="text-sm mb-3 font-medium" style={{ color: FAIL_C }}>{failedData.total} failed student record(s) found</p>
                 <div className="rounded-lg overflow-x-auto" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
-                  <table className="w-full" style={{ borderCollapse: "collapse" }}>
+                  <table className="w-full" style={{ borderCollapse: "collapse", minWidth: "800px" }}>
                     <thead>
                       <tr>{["Matric No","Name","Department","Programme","Course","Level","Session","Lecturer","Exam","CA","Total","Grade"].map(h=>(
                         <th key={h} className="text-left px-3 py-2 text-xs uppercase tracking-wide whitespace-nowrap" style={{ color: MUTED, borderBottom:`1px solid ${LINE}` }}>{h}</th>
