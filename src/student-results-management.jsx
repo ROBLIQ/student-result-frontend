@@ -2461,33 +2461,48 @@ function AdminDashboard({ admin, token, onLogout }) {
         </div>
       )}
 
-      {/* Mobile top bar */}
-      <div className="md:hidden flex items-center justify-between px-4 py-3 sticky top-0 z-30" style={{ background: "#7C3AED" }}>
-        <button onClick={() => setSidebarOpen(true)} className="p-1"><Menu size={22} color="#FFF" /></button>
-        <span className="text-sm font-semibold" style={{ color: "#FFF" }}>Admin Dashboard</span>
-        <Shield size={18} color="#FFF" />
+      {/* Mobile top bar — z-[60] so it always sits above the sidebar */}
+      <div className="md:hidden flex items-center justify-between px-4 py-3 sticky top-0 z-[60]" style={{ background: "#4C1D95" }}>
+        <button onClick={() => setSidebarOpen(true)} className="p-1.5 rounded-md" style={{ background: "rgba(255,255,255,0.1)" }} aria-label="Open menu">
+          <Menu size={20} color="#FFF" />
+        </button>
+        <div className="flex items-center gap-2">
+          <Shield size={16} color="#A78BFA" />
+          <span className="text-sm font-semibold" style={{ color: "#FFF" }}>Admin Dashboard</span>
+        </div>
+        <div className="w-8" /> {/* spacer to balance the layout */}
       </div>
 
-      {sidebarOpen && <div className="md:hidden fixed inset-0 z-30" style={{ background: "rgba(0,0,0,0.4)" }} onClick={() => setSidebarOpen(false)} />}
+      {/* Overlay behind sidebar — z-[55] so it's below top bar but above content */}
+      {sidebarOpen && (
+        <div
+          className="md:hidden fixed inset-0 z-[55]"
+          style={{ background: "rgba(0,0,0,0.5)" }}
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
 
-      {/* Admin Sidebar */}
+      {/* Admin Sidebar — z-[56] so it's above overlay but below top bar */}
       <aside
-        className="rms-admin-sidebar w-60 flex-shrink-0 flex flex-col justify-between fixed md:static inset-y-0 left-0 z-40 transition-transform duration-200 md:translate-x-0"
+        className="rms-admin-sidebar w-64 flex-shrink-0 flex flex-col justify-between fixed md:static inset-y-0 left-0 z-[56] transition-transform duration-200 md:translate-x-0"
         style={{ background: "#4C1D95" }}
       >
         <style>{`@media(max-width:767px){.rms-admin-sidebar{transform:${sidebarOpen?"translateX(0)":"translateX(-100%)"}}}`}</style>
         <div>
-          <div className="px-5 py-5 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.15)" }}>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: "#7C3AED" }}>
+          {/* Sidebar header — add top padding on mobile to clear the sticky top bar */}
+          <div className="px-5 pt-14 pb-5 md:pt-5 flex items-center justify-between" style={{ borderBottom: "1px solid rgba(255,255,255,0.15)" }}>
+            <div className="flex items-center gap-3 overflow-hidden">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "#7C3AED" }}>
                 <Shield size={18} color="#FFF" />
               </div>
-              <div>
+              <div className="overflow-hidden">
                 <div className="text-sm font-medium truncate" style={{ color: "#FFF" }}>{admin.name}</div>
                 <div className="text-xs uppercase tracking-wide" style={{ color: "#A78BFA" }}>Administrator</div>
               </div>
             </div>
-            <button onClick={() => setSidebarOpen(false)} className="md:hidden p-1"><X size={16} color="#FFF" /></button>
+            <button onClick={() => setSidebarOpen(false)} className="md:hidden p-1 flex-shrink-0" aria-label="Close menu">
+              <X size={16} color="rgba(255,255,255,0.7)" />
+            </button>
           </div>
           <nav className="px-3 py-4 space-y-1">
             {[
