@@ -38,6 +38,7 @@ import {
   ChevronUp,
   BarChart2,
   FileText,
+  TrendingUp,
 } from "lucide-react";
 
 // ---------- API ----------
@@ -234,6 +235,8 @@ export default function StudentResultsApp() {
   const [reportData, setReportData] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportOptions, setReportOptions] = useState(null);
+  const [statsData, setStatsData] = useState(null);
+  const [statsLoading, setStatsLoading] = useState(false);
 
   function askConfirm(message, onConfirm) {
     setConfirmState({ message, onConfirm });
@@ -487,6 +490,18 @@ export default function StudentResultsApp() {
     }
   }
 
+  async function loadStats() {
+    setStatsLoading(true);
+    try {
+      const data = await apiFetch("/analysis/statistics", token);
+      setStatsData(data);
+    } catch (err) {
+      setGeneralError(err.message);
+    } finally {
+      setStatsLoading(false);
+    }
+  }
+
   async function loadReportOptions() {
     try {
       const data = await apiFetch("/analysis/report/options", token);
@@ -535,9 +550,10 @@ export default function StudentResultsApp() {
   function goToPage(p) {
     setPage(p);
     setSidebarOpen(false);
-    if (p === "carryover" && !carryoverData) loadCarryover();
-    if (p === "level"     && !levelData)     loadLevelData();
-    if (p === "reports"   && !reportOptions) loadReportOptions();
+    if (p === "carryover"    && !carryoverData)   loadCarryover();
+    if (p === "level"        && !levelData)        loadLevelData();
+    if (p === "reports"      && !reportOptions)    loadReportOptions();
+    if (p === "performance"  && !statsData)        loadStats();
   }
 
   const selectedCourse = courses.find((c) => c._id === selectedCourseId) || null;
@@ -819,6 +835,7 @@ export default function StudentResultsApp() {
             <SidebarItem icon={<Search size={16} />} label="Search Students" active={page === "search"} onClick={() => goToPage("search")} />
             <SidebarItem icon={<BarChart2 size={16} />} label="Level Analysis" active={page === "level"} onClick={() => goToPage("level")} />
             <SidebarItem icon={<FileText size={16} />} label="Reports" active={page === "reports"} onClick={() => goToPage("reports")} />
+            <SidebarItem icon={<TrendingUp size={16} />} label="Performance" active={page === "performance"} onClick={() => goToPage("performance")} />
             <SidebarItem icon={<AlertTriangle size={16} />} label="Carry-Over" active={page === "carryover"} onClick={() => goToPage("carryover")} />
             <SidebarItem icon={<User size={16} />} label="Profile" active={page === "profile"} onClick={() => goToPage("profile")} />
           </nav>
@@ -849,6 +866,12 @@ export default function StudentResultsApp() {
           />
         ) : page === "profile" ? (
           <ProfilePage lecturer={lecturer} saveProfile={saveProfile} profileSaved={profileSaved} />
+        ) : page === "performance" ? (
+          <PerformancePage
+            data={statsData}
+            loading={statsLoading}
+            onRefresh={loadStats}
+          />
         ) : page === "reports" ? (
           <ReportsPage
             options={reportOptions}
@@ -3317,6 +3340,197 @@ function ReportsPage({ options, data, loading, onGenerate }) {
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function PerformancePage({ data, loading, onRefresh }) {
+  if (loading) return <p className="text-sm" style={{ color: MUTED }}>Loading performance statistics…</p>;
+
+  const isEmpty = !data || data.empty;
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div>
+          <h1 className="text-2xl mb-1" style={{ color: INK, fontFamily: SERIF, fontWeight: 600 }}>
+            Performance Statistics
+          </h1>
+          <p className="text-sm" style={{ color: SLATE }}>
+            Visual breakdown of pass rates, grade distribution, departmental and level performance.
+          </p>
+        </div>
+        <button
+          onClick={onRefresh}
+          className="px-3 py-1.5 rounded-md text-sm"
+          style={{ border: `1px solid ${LINE}`, color: SLATE }}
+        >
+          Refresh
+        </button>
+      </div>
+
+      {isEmpty ? (
+        <div className="rounded-lg p-10 text-center" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+          <p className="text-sm font-medium" style={{ color: INK }}>No data yet</p>
+          <p className="text-sm mt-1" style={{ color: MUTED }}>Add courses and upload student results to see performance charts.</p>
+        </div>
+      ) : (
+        <>
+          {/* ── Overall summary cards ── */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            {[
+              { label: "Total Courses",  value: data.overall.totalCourses },
+              { label: "Total Students", value: data.overall.totalStudents },
+              { label: "Pass Rate",      value: `${data.overall.passRate}%`, color: data.overall.passRate >= 50 ? PASS_C : FAIL_C },
+              { label: "Fail Rate",      value: `${data.overall.failRate}%`, color: FAIL_C },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="rounded-lg p-4" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+                <div className="text-xs uppercase tracking-wide mb-1" style={{ color: MUTED }}>{label}</div>
+                <div className="text-2xl font-semibold" style={{ color: color || INK, fontFamily: SERIF }}>{value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* ── Row 1: Overall grade distribution + Pass vs Fail ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+
+            {/* Grade distribution pie */}
+            <div className="rounded-lg p-5" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+              <h2 className="text-sm font-semibold mb-1" style={{ color: INK }}>Overall Grade Distribution</h2>
+              <p className="text-xs mb-4" style={{ color: MUTED }}>All students across all courses</p>
+              <ResponsiveContainer width="100%" height={240}>
+                <PieChart>
+                  <Pie
+                    data={Object.entries(data.overall.gradeCounts).filter(([,v])=>v>0).map(([k,v])=>({ name:k, value:v }))}
+                    dataKey="value" nameKey="name"
+                    innerRadius={55} outerRadius={90} paddingAngle={2}
+                    label={({ name, percent }) => `${name} ${(percent*100).toFixed(0)}%`}
+                    labelLine={false}
+                  >
+                    {Object.entries(data.overall.gradeCounts).filter(([,v])=>v>0).map(([k]) => (
+                      <Cell key={k} fill={GRADE_COLORS[k]} />
+                    ))}
+                  </Pie>
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Pass vs Fail bar */}
+            <div className="rounded-lg p-5" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+              <h2 className="text-sm font-semibold mb-1" style={{ color: INK }}>Pass vs Fail — All Courses</h2>
+              <p className="text-xs mb-4" style={{ color: MUTED }}>Comparing pass and fail count per course</p>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={data.courses.map(c=>({ name: c.code, Pass: c.passed, Fail: c.failed }))}>
+                  <CartesianGrid stroke={LINE} vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: SLATE }} />
+                  <YAxis tick={{ fontSize: 11, fill: SLATE }} allowDecimals={false} />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="Pass" fill={PASS_C} radius={[3,3,0,0]} />
+                  <Bar dataKey="Fail" fill={FAIL_C} radius={[3,3,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* ── Row 2: Course pass rates + Level performance ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+
+            {/* Course pass rate bar */}
+            <div className="rounded-lg p-5" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+              <h2 className="text-sm font-semibold mb-1" style={{ color: INK }}>Pass Rate by Course (%)</h2>
+              <p className="text-xs mb-4" style={{ color: MUTED }}>Green line marks the 50% threshold</p>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={data.courses.map(c=>({ name: c.code, "Pass Rate": c.passRate }))}>
+                  <CartesianGrid stroke={LINE} vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: SLATE }} />
+                  <YAxis domain={[0,100]} tick={{ fontSize: 11, fill: SLATE }} unit="%" />
+                  <Tooltip formatter={(v) => [`${v}%`, "Pass Rate"]} />
+                  <Bar dataKey="Pass Rate" radius={[3,3,0,0]}
+                    fill={PASS_C}
+                    label={{ position:"top", fontSize:9, fill: SLATE, formatter: (v)=>`${v}%` }}
+                  >
+                    {data.courses.map((c, i) => (
+                      <Cell key={i} fill={c.passRate >= 50 ? PASS_C : FAIL_C} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Level performance */}
+            {data.levels.length > 0 && (
+              <div className="rounded-lg p-5" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+                <h2 className="text-sm font-semibold mb-1" style={{ color: INK }}>Performance by Level</h2>
+                <p className="text-xs mb-4" style={{ color: MUTED }}>Pass, fail, and carry-over students per level</p>
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={data.levels.map(l=>({ name: l.level, Pass: l.passed, Fail: l.failed, "Carry-Over": l.carryover }))}>
+                    <CartesianGrid stroke={LINE} vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: SLATE }} />
+                    <YAxis tick={{ fontSize: 11, fill: SLATE }} allowDecimals={false} />
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="Pass" fill={PASS_C} radius={[3,3,0,0]} />
+                    <Bar dataKey="Fail" fill={FAIL_C} radius={[3,3,0,0]} />
+                    <Bar dataKey="Carry-Over" fill={GOLD} radius={[3,3,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+
+          {/* ── Row 3: Departmental performance ── */}
+          {data.departments.length > 0 && (
+            <div className="rounded-lg p-5 mb-6" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+              <h2 className="text-sm font-semibold mb-1" style={{ color: INK }}>Departmental Performance</h2>
+              <p className="text-xs mb-4" style={{ color: MUTED }}>Pass and fail counts per department</p>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={data.departments.map(d=>({ name: d.department, Pass: d.passed, Fail: d.failed, "Pass Rate": d.passRate }))}>
+                  <CartesianGrid stroke={LINE} vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: SLATE }} />
+                  <YAxis tick={{ fontSize: 11, fill: SLATE }} allowDecimals={false} />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="Pass" fill={PASS_C} radius={[3,3,0,0]} />
+                  <Bar dataKey="Fail" fill={FAIL_C} radius={[3,3,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* ── Course performance table ── */}
+          <div className="rounded-lg" style={{ background: "#FFF", border: `1px solid ${LINE}` }}>
+            <div className="px-5 py-3" style={{ borderBottom: `1px solid ${LINE}` }}>
+              <h2 className="text-sm font-semibold" style={{ color: INK }}>Course-by-Course Breakdown</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full" style={{ borderCollapse: "collapse", minWidth: "600px" }}>
+                <thead>
+                  <tr>{["Course Code","Title","Level","Students","Passed","Failed","Pass Rate","Fail Rate"].map(h=>(
+                    <th key={h} className="text-left px-4 py-2 text-xs uppercase tracking-wide" style={{ color: MUTED, borderBottom:`1px solid ${LINE}` }}>{h}</th>
+                  ))}</tr>
+                </thead>
+                <tbody>
+                  {data.courses.map((c, i) => (
+                    <tr key={c.code} style={{ borderBottom:`1px solid ${LINE}`, background: i%2===0?"#FFF":PAPER }}>
+                      <td className="px-4 py-2 text-sm font-semibold" style={{ color: GOLD, fontFamily: MONO }}>{c.code}</td>
+                      <td className="px-4 py-2 text-sm" style={{ color: INK }}>{c.title}</td>
+                      <td className="px-4 py-2 text-sm" style={{ color: SLATE }}>{c.level||"—"}</td>
+                      <td className="px-4 py-2 text-sm text-center" style={{ color: INK }}>{c.students}</td>
+                      <td className="px-4 py-2 text-sm text-center font-medium" style={{ color: PASS_C }}>{c.passed}</td>
+                      <td className="px-4 py-2 text-sm text-center font-medium" style={{ color: FAIL_C }}>{c.failed}</td>
+                      <td className="px-4 py-2 text-sm font-semibold text-center" style={{ color: c.passRate>=50?PASS_C:FAIL_C }}>{c.passRate}%</td>
+                      <td className="px-4 py-2 text-sm font-semibold text-center" style={{ color: FAIL_C }}>{c.failRate}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
